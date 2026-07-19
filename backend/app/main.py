@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health
+from app.api.routes import health, rbs
 from app.core.config import settings
 from app.db.redis import redis_client
 from app.db.session import engine
@@ -28,8 +28,9 @@ if settings.cors_origins:
     )
 
 app.include_router(health.router)
+app.include_router(rbs.router)
 
 
 @app.get("/", tags=["root"])
 async def root() -> dict:
-    return {"name": settings.app_name, "docs": "/docs", "health": "/health", "built_by": "Sam"}
+    return {"name": settings.app_name, "docs": "/docs", "health": "/health"}
