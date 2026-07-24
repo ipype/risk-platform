@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     Date,
     DateTime,
     ForeignKey,
@@ -15,20 +16,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base_class import Base
 
 
-def compute_risk_level(probability: int | None, impact: int | None) -> str | None:
-    """Default 5x5 banding of probability x impact. Made configurable in a later phase."""
-    if probability is None or impact is None:
-        return None
-    score = probability * impact
-    if score <= 4:
-        return "Low"
-    if score <= 9:
-        return "Medium"
-    if score <= 14:
-        return "High"
-    return "Very High"
-
-
 class Risk(Base):
     __tablename__ = "risk"
     __table_args__ = (
@@ -40,7 +27,7 @@ class Risk(Base):
     subcategory_id: Mapped[int] = mapped_column(
         ForeignKey("rbs_subcategory.id", ondelete="RESTRICT"), index=True
     )
-    seq: Mapped[int] = mapped_column(Integer)  # the XXXX within the subcategory
+    seq: Mapped[int] = mapped_column(Integer)
     risk_code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
 
     title: Mapped[str] = mapped_column(String(300))
@@ -51,14 +38,24 @@ class Risk(Base):
     status: Mapped[str] = mapped_column(
         String(30), default="Open", server_default="Open"
     )
+
+    # current (inherent) assessment
     probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
     impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    impact_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # target (residual) assessment
+    target_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_impact_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    target_risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     mitigation_actions: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_review_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    custom_fields: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

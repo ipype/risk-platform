@@ -1,9 +1,14 @@
 import type { Risk } from "../types";
 import type { ColumnDef } from "../columns";
+import { LEVEL_KEYS, cellText } from "../columns";
+import ColumnFilter from "./ColumnFilter";
 
 interface Props {
   risks: Risk[];
   columns: ColumnDef[];
+  filters: Record<string, string[] | null>;
+  distinct: Record<string, string[]>;
+  onFilter: (key: string, selected: string[] | null) => void;
   onEdit: (r: Risk) => void;
   onDelete: (r: Risk) => void;
 }
@@ -16,19 +21,36 @@ const LONG_FIELDS = [
   "comments",
 ];
 
-function cellValue(risk: Risk, key: keyof Risk): string {
-  const v = risk[key];
-  return v === null || v === undefined ? "" : String(v);
+function levelClass(level: string): string {
+  return `badge level-${level.replace(/\s+/g, "-").toLowerCase()}`;
 }
 
-export default function RiskTable({ risks, columns, onEdit, onDelete }: Props) {
+export default function RiskTable({
+  risks,
+  columns,
+  filters,
+  distinct,
+  onFilter,
+  onEdit,
+  onDelete,
+}: Props) {
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key}>{c.label}</th>
+              <th key={c.key}>
+                <div className="th-inner">
+                  <span>{c.label}</span>
+                  <ColumnFilter
+                    columnKey={c.key}
+                    values={distinct[c.key] ?? []}
+                    selected={filters[c.key] ?? null}
+                    onChange={onFilter}
+                  />
+                </div>
+              </th>
             ))}
             <th className="actions-col">Actions</th>
           </tr>
@@ -37,25 +59,15 @@ export default function RiskTable({ risks, columns, onEdit, onDelete }: Props) {
           {risks.map((risk) => (
             <tr key={risk.id}>
               {columns.map((c) => {
-                if (c.key === "risk_level") {
-                  const level = risk.risk_level;
+                const value = cellText(risk, c);
+                if (!c.custom && LEVEL_KEYS.includes(c.key)) {
                   return (
                     <td key={c.key}>
-                      {level ? (
-                        <span
-                          className={`badge level-${level
-                            .replace(/\s+/g, "-")
-                            .toLowerCase()}`}
-                        >
-                          {level}
-                        </span>
-                      ) : (
-                        ""
-                      )}
+                      {value ? <span className={levelClass(value)}>{value}</span> : ""}
                     </td>
                   );
                 }
-                if (c.key === "status") {
+                if (!c.custom && c.key === "status") {
                   return (
                     <td key={c.key}>
                       <span className={`badge status-${risk.status.toLowerCase()}`}>
@@ -65,7 +77,6 @@ export default function RiskTable({ risks, columns, onEdit, onDelete }: Props) {
                   );
                 }
                 const long = LONG_FIELDS.includes(c.key);
-                const value = cellValue(risk, c.key);
                 return (
                   <td key={c.key} className={long ? "cell-long" : ""} title={value}>
                     {value}

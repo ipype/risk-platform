@@ -1,14 +1,23 @@
 from datetime import date, datetime
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.models.history import (
+    RiskHistory,
+    RiskHistoryRead,
+    creation_changes,
+    diff_snapshots,
+    snapshot,
+)
+from app.models.matrix import band_for, get_active_config, overall_impact
+from app.models.mitigation import MitigationAction
 from app.models.rbs import RbsCategory, RbsSubcategory
-from app.models.risk import Risk, compute_risk_level
+from app.models.risk import Risk
 
 router = APIRouter(prefix="/risks", tags=["risks"])
 
@@ -21,20 +30,23 @@ class RiskStatus(str, Enum):
 
 
 class RiskCreate(BaseModel):
-    subcategory_prefix: str = Field(
-        ..., examples=["ENV-030"], description="Category-subcategory code, e.g. ENV-030"
-    )
+    subcategory_prefix: str = Field(..., examples=["ENV-030"])
     title: str
     description: str | None = None
     causes: str | None = None
     consequences: str | None = None
     status: RiskStatus = RiskStatus.open
-    probability: int | None = Field(default=None, ge=1, le=5)
-    impact: int | None = Field(default=None, ge=1, le=5)
+    probability: int | None = Field(default=None, ge=1, le=9)
+    impact: int | None = Field(default=None, ge=1, le=9)
+    impact_scores: dict[str, int] | None = None
+    target_probability: int | None = Field(default=None, ge=1, le=9)
+    target_impact: int | None = Field(default=None, ge=1, le=9)
+    target_impact_scores: dict[str, int] | None = None
     mitigation_actions: str | None = None
     owner: str | None = None
     last_review_date: date | None = None
     comments: str | None = None
+    custom_fields: dict | None = None
 
 
 class RiskUpdate(BaseModel):
@@ -43,12 +55,17 @@ class RiskUpdate(BaseModel):
     causes: str | None = None
     consequences: str | None = None
     status: RiskStatus | None = None
-    probability: int | None = Field(default=None, ge=1, le=5)
-    impact: int | None = Field(default=None, ge=1, le=5)
+    probability: int | None = Field(default=None, ge=1, le=9)
+    impact: int | None = Field(default=None, ge=1, le=9)
+    impact_scores: dict[str, int] | None = None
+    target_probability: int | None = Field(default=None, ge=1, le=9)
+    target_impact: int | None = Field(default=None, ge=1, le=9)
+    target_impact_scores: dict[str, int] | None = None
     mitigation_actions: str | None = None
     owner: str | None = None
     last_review_date: date | None = None
     comments: str | None = None
+    custom_fields: dict | None = None
 
 
 class RiskRead(BaseModel):
@@ -61,11 +78,17 @@ class RiskRead(BaseModel):
     status: str
     probability: int | None
     impact: int | None
+    impact_scores: dict[str, int] | None
     risk_level: str | None
+    target_probability: int | None
+    target_impact: int | None
+    target_impact_scores: dict[str, int] | None
+    target_risk_level: str | None
     mitigation_actions: str | None
     owner: str | None
     last_review_date: date | None
     comments: str | None
+    custom_fields: dict | None
     created_at: datetime
     updated_at: datetime
 
@@ -77,9 +100,7 @@ async def _resolve_subcategory(
 ) -> tuple[RbsCategory, RbsSubcategory]:
     parts = prefix.strip().upper().split("-")
     if len(parts) != 2:
-        raise HTTPException(
-            status_code=422, detail="subcategory_prefix must look like 'ENV-030'"
-        )
+        raise HTTPException(status_code=422, detail="prefix must look like 'ENV-030'")
     cat_code, sub_code = parts
     result = await db.execute(
         select(RbsCategory, RbsSubcategory)
@@ -88,15 +109,27 @@ async def _resolve_subcategory(
     )
     row = result.first()
     if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"No subcategory '{prefix}' in the RBS"
-        )
+        raise HTTPException(status_code=404, detail=f"No subcategory '{prefix}'")
     return row[0], row[1]
 
 
+def _rescore(risk: Risk, config: dict) -> None:
+    oi = overall_impact(risk.impact_scores, risk.impact)
+    risk.impact = oi
+    risk.risk_level = band_for(risk.probability, oi, config)
+    toi = overall_impact(risk.target_impact_scores, risk.target_impact)
+    risk.target_impact = toi
+    risk.target_risk_level = band_for(risk.target_probability, toi, config)
+
+
 @router.post("", response_model=RiskRead, status_code=201)
-async def create_risk(payload: RiskCreate, db: AsyncSession = Depends(get_db)) -> Risk:
+async def create_risk(
+    payload: RiskCreate,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
+) -> Risk:
     category, subcategory = await _resolve_subcategory(db, payload.subcategory_prefix)
+    config = await get_active_config(db)
 
     max_seq = await db.execute(
         select(func.coalesce(func.max(Risk.seq), 0)).where(
@@ -117,13 +150,29 @@ async def create_risk(payload: RiskCreate, db: AsyncSession = Depends(get_db)) -
         status=payload.status.value,
         probability=payload.probability,
         impact=payload.impact,
-        risk_level=compute_risk_level(payload.probability, payload.impact),
+        impact_scores=payload.impact_scores,
+        target_probability=payload.target_probability,
+        target_impact=payload.target_impact,
+        target_impact_scores=payload.target_impact_scores,
         mitigation_actions=payload.mitigation_actions,
         owner=payload.owner,
         last_review_date=payload.last_review_date,
         comments=payload.comments,
+        custom_fields=payload.custom_fields,
     )
+    _rescore(risk, config)
     db.add(risk)
+    await db.flush()
+
+    db.add(
+        RiskHistory(
+            risk_id=risk.id,
+            risk_code=risk.risk_code,
+            action="created",
+            actor=actor,
+            changes=creation_changes(snapshot(risk)),
+        )
+    )
     await db.commit()
     await db.refresh(risk)
     return risk
@@ -132,7 +181,7 @@ async def create_risk(payload: RiskCreate, db: AsyncSession = Depends(get_db)) -
 @router.get("", response_model=list[RiskRead])
 async def list_risks(
     db: AsyncSession = Depends(get_db),
-    category: str | None = Query(default=None, description="Filter by category code, e.g. ENV"),
+    category: str | None = Query(default=None),
     status: RiskStatus | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -159,13 +208,30 @@ async def get_risk(risk_id: int, db: AsyncSession = Depends(get_db)) -> Risk:
     return risk
 
 
+@router.get("/{risk_id}/history", response_model=list[RiskHistoryRead])
+async def risk_history(
+    risk_id: int, db: AsyncSession = Depends(get_db)
+) -> list[RiskHistory]:
+    res = await db.execute(
+        select(RiskHistory)
+        .where(RiskHistory.risk_id == risk_id)
+        .order_by(RiskHistory.created_at.desc(), RiskHistory.id.desc())
+    )
+    return list(res.scalars().all())
+
+
 @router.patch("/{risk_id}", response_model=RiskRead)
 async def update_risk(
-    risk_id: int, payload: RiskUpdate, db: AsyncSession = Depends(get_db)
+    risk_id: int,
+    payload: RiskUpdate,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
 ) -> Risk:
     risk = await db.get(Risk, risk_id)
     if risk is None:
         raise HTTPException(status_code=404, detail="Risk not found")
+
+    before = snapshot(risk)
 
     data = payload.model_dump(exclude_unset=True)
     if data.get("status") is not None:
@@ -173,7 +239,20 @@ async def update_risk(
     for field, value in data.items():
         setattr(risk, field, value)
 
-    risk.risk_level = compute_risk_level(risk.probability, risk.impact)
+    config = await get_active_config(db)
+    _rescore(risk, config)
+
+    changes = diff_snapshots(before, snapshot(risk))
+    if changes:
+        db.add(
+            RiskHistory(
+                risk_id=risk.id,
+                risk_code=risk.risk_code,
+                action="updated",
+                actor=actor,
+                changes=changes,
+            )
+        )
 
     await db.commit()
     await db.refresh(risk)
@@ -181,9 +260,24 @@ async def update_risk(
 
 
 @router.delete("/{risk_id}", status_code=204)
-async def delete_risk(risk_id: int, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_risk(
+    risk_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
+) -> None:
     risk = await db.get(Risk, risk_id)
     if risk is None:
         raise HTTPException(status_code=404, detail="Risk not found")
+
+    db.add(
+        RiskHistory(
+            risk_id=risk.id,
+            risk_code=risk.risk_code,
+            action="deleted",
+            actor=actor,
+            changes=[],
+        )
+    )
+    await db.execute(delete(MitigationAction).where(MitigationAction.risk_id == risk.id))
     await db.delete(risk)
     await db.commit()
