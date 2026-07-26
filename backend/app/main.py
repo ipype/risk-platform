@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     custom_fields,
+    export,
     health,
     history,
     matrix,
@@ -33,6 +34,9 @@ if settings.cors_origins:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # the browser can only read this header cross-origin if it is exposed,
+        # and the Excel export relies on it for the download filename
+        expose_headers=["Content-Disposition"],
     )
 
 app.include_router(health.router)
@@ -42,6 +46,7 @@ app.include_router(matrix.router)
 app.include_router(history.router)
 app.include_router(mitigations.router)
 app.include_router(custom_fields.router)
+app.include_router(export.router)
 
 
 @app.get("/", tags=["root"])

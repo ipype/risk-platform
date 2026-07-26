@@ -151,3 +151,38 @@ export function saveCustomFields(cfg: CustomFieldConfig): Promise<CustomFieldCon
     body: JSON.stringify(cfg),
   }).then((r) => handle<CustomFieldConfig>(r));
 }
+
+/**
+ * Download the register workbook. Streams the response to a Blob and triggers a
+ * browser download, so HTTP errors surface as thrown Errors instead of the user
+ * landing on a broken tab.
+ */
+export async function exportRegister(): Promise<void> {
+  const res = await fetch(`${BASE}/export/register.xlsx`);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail =
+        typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+    } catch {
+      // no JSON body
+    }
+    throw new Error(`${res.status}: ${detail}`);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const filename =
+    match?.[1] ?? `risk_register_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

@@ -6,6 +6,7 @@ import {
   getMatrixConfig,
   getRisks,
   deleteRisk,
+  exportRegister,
 } from "../api";
 import { ALL_COLUMNS, DEFAULT_VISIBLE, customColumns, cellText } from "../columns";
 import RiskTable from "../components/RiskTable";
@@ -40,6 +41,7 @@ export default function RegisterView() {
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [editing, setEditing] = useState<Risk | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     getCategories().then(setCategories).catch((e) => setError(String(e)));
@@ -114,12 +116,32 @@ export default function RegisterView() {
     }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      await exportRegister();
+    } catch (e) {
+      setError(`Export failed — ${String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const filterCount = activeFilters.length;
 
   return (
     <>
       <header className="topbar">
         <h1>Risk Register</h1>
+        <button
+          className="btn"
+          onClick={handleExport}
+          disabled={exporting}
+          title="Download the register, mitigation actions, matrix and RBS as an Excel workbook"
+        >
+          {exporting ? "Exporting…" : "Export to Excel"}
+        </button>
         <button className="btn primary" onClick={openCreate}>
           + New risk
         </button>
