@@ -99,7 +99,7 @@ boundary is easy to blur once real code is there and hard to unwind after.
 
 ## Build commands
 
-STarget surface (see `claude/ACTIVE.md` for what's actually wired up):
+Target surface (see `claude/ACTIVE.md` for what's actually wired up):
 
 ```bash
 make dev            # docker compose up: postgres, redis, api, worker, web
