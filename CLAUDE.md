@@ -68,16 +68,34 @@ a dated decision plus any new invariant, `CLAUDE.md` only if a file or trigger c
 ## Repo layout
 
 ```
-api/          FastAPI app, routers, schemas, services
-core/         domain logic — risk register, elicitation, mapping
-sim/          Monte Carlo engine (pure, no I/O, deterministic given a seed)
-parse/        MPXJ bridge, document ingestion, chunking, OCR routing
-workers/      Celery tasks
-web/          React frontend
-scripts/      one-off and CI-adjacent scripts (CI logic lives here, not in workflows)
-migrations/   Alembic
-tests/        mirrors the package tree
+backend/
+├── app/
+│   ├── main.py          FastAPI app + CORS + lifespan
+│   ├── core/             config, domain errors, cross-cutting logic
+│   ├── db/               async engine, session, base declarative class, redis client
+│   ├── models/           SQLAlchemy models — import into db/base.py for Alembic autogenerate
+│   ├── api/               routers
+│   ├── schedule/          schedule ingestion (MPXJ bridge, .xer/.mpp parsing) — P2
+│   ├── services/          application services
+│   └── seed_rbs.py        RBS taxonomy seed script
+├── alembic/               migrations (alembic.ini + versions/)
+├── scripts/                one-off + CI-adjacent scripts (CI logic lives here, not .github/workflows)
+├── tests/                  mirrors app/ tree
+├── requirements.txt / requirements-dev.txt
+├── pytest.ini
+└── Dockerfile
+
+frontend/
+├── src/                    React app
+├── package.json            npm — package-lock.json present, not pnpm
+├── index.html, vite.config.ts, tsconfig.json
+
+sample-schedules/            reference .xer / .mpp fixtures for parser tests
 ```
+No dedicated `sim/` package exists yet. When `P3` (Monte Carlo engine) starts, it must land
+as its own package — `backend/app/sim/` or `backend/sim/` — kept free of DB, network, and
+logging side effects per the sim-purity invariant. Do not fold it into `services/`; that
+boundary is easy to blur once real code is there and hard to unwind after.
 
 ## Build commands
 
@@ -85,7 +103,7 @@ Scaffold not yet committed — see `.claude/ACTIVE.md`. Target surface:
 
 ```bash
 make dev            # docker compose up: postgres, redis, api, worker, web
-make install        # uv sync && pnpm -C web install
+make install        # uv sync && npm --prefix frontend install
 make test           # pytest + vitest
 make test-sim       # sim/ only, includes statistical regression tests
 make lint           # ruff + mypy + eslint + prettier --check
