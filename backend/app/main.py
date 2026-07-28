@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.errors import register_exception_handlers
 from app.api.routes import (
     custom_fields,
     export,
@@ -12,6 +13,7 @@ from app.api.routes import (
     mitigations,
     rbs,
     risks,
+    schedules,
 )
 from app.core.config import settings
 from app.db.redis import redis_client
@@ -39,6 +41,9 @@ if settings.cors_origins:
         expose_headers=["Content-Disposition"],
     )
 
+# domain errors -> meaningful status codes, in one place instead of per-route try/except
+register_exception_handlers(app)
+
 app.include_router(health.router)
 app.include_router(rbs.router)
 app.include_router(risks.router)
@@ -47,6 +52,7 @@ app.include_router(history.router)
 app.include_router(mitigations.router)
 app.include_router(custom_fields.router)
 app.include_router(export.router)
+app.include_router(schedules.router)
 
 
 @app.get("/", tags=["root"])
