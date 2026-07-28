@@ -20,13 +20,13 @@ probabilistic math, schedule semantics, or the audit trail is never cheap to rev
 
 | File | Open when |
 |---|---|
-| `.claude/SYSTEM.md` | Bootstrap. Stable primitives: IDs, env, ports, commands, standing rules. |
-| `.claude/ACTIVE.md` | Bootstrap. In-flight work only. Target < 100 lines. |
-| `.claude/BACKLOG.md` | Current work finished, I ask what is pending, or a watch item may have fired. |
-| `.claude/REFERENCE.md` | Before editing a subsystem it documents, or when unsure why the code is the way it is. Invariants, gotchas, dated decisions. |
-| `.claude/ref/<topic>.md` | Named directly. Split out when one subsystem's notes pass ~150 lines. |
-| `.claude/plans/<name>.md` | Named directly. One file per multi-session initiative. |
-| `.claude/sessions/` | Write-only archive. Never read unless I ask about a specific date. |
+| `claude/SYSTEM.md` | Bootstrap. Stable primitives: IDs, env, ports, commands, standing rules. |
+| `claude/ACTIVE.md` | Bootstrap. In-flight work only. Target < 100 lines. |
+| `claude/BACKLOG.md` | Current work finished, I ask what is pending, or a watch item may have fired. |
+| `claude/REFERENCE.md` | Before editing a subsystem it documents, or when unsure why the code is the way it is. Invariants, gotchas, dated decisions. |
+| `claude/ref/<topic>.md` | Named directly. Split out when one subsystem's notes pass ~150 lines. |
+| `claude/plans/<n>.md` | Named directly. One file per multi-session initiative. |
+| `claude/sessions/` | Write-only archive. Never read unless I ask about a specific date. |
 
 Split, never consolidate. When `ACTIVE.md` grows, move open work to `BACKLOG.md` and lessons
 to `REFERENCE.md`. Adding a doc means adding a row here with its trigger.
@@ -38,11 +38,11 @@ the code.
 
 **`ehe`** — bootstrap. 1) `get_file_contents` on `package.json` (fallback `README.md`) at
 `ipype/Risk-Platform` ref `main` as the connector probe; if it fails, say so and stop.
-2) Read `CLAUDE.md`. 3) `.claude/SYSTEM.md`. 4) `.claude/ACTIVE.md`. Read nothing else.
-Confirm in one line, then wait.
+2) Read `CLAUDE.md`. 3) `claude/SYSTEM.md`. 4) `claude/ACTIVE.md`. Read nothing else.
+  Confirm in one line, then wait.
 
 **`yeet`** — close. 1) Compile the session: commits with SHAs, decisions, stale docs, items
-surfaced. 2) Write `.claude/sessions/YYYY-MM-DD-<slug>.md`. 3) Route changes, newest state
+surfaced. 2) Write `claude/sessions/YYYY-MM-DD-<slug>.md`. 3) Route changes, newest state
 wins — `ACTIVE.md` drop shipped work, `BACKLOG.md` add deferred/blocked, `REFERENCE.md` add
 a dated decision plus any new invariant, `CLAUDE.md` only if a file or trigger changed.
 4) One `push_files` call for every doc change. 5) Recap in ≤ 5 lines.
@@ -99,7 +99,7 @@ boundary is easy to blur once real code is there and hard to unwind after.
 
 ## Build commands
 
-Scaffold not yet committed — see `.claude/ACTIVE.md`. Target surface:
+STarget surface (see `claude/ACTIVE.md` for what's actually wired up):
 
 ```bash
 make dev            # docker compose up: postgres, redis, api, worker, web
