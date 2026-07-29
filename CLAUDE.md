@@ -145,15 +145,13 @@ Violating any of these is a correctness bug, not a style opinion. Detail in `REF
 
 ## Token discipline
 
-- GitHub MCP for every read, write, and commit. Never the web editor.
+- GitHub MCP for every read. Never the web editor.
 - `get_file_contents` on exact paths. Do not crawl directories to browse.
 - Never re-read a file already read this chat. Do not echo file contents back into chat —
   say what changed, not what the file says.
 - Avoid files over 30KB unless the task requires it. Editing a large file costs it twice.
-- Write with `push_files` (multi-file, atomic). `create_or_update_file` only for a single
-  file, fetching its SHA immediately before the call.
-- Never two files over 40KB in one `push_files` call — it truncates silently.
-- `push_files` returns 403 under `.github/workflows/`. Put that logic in `scripts/`.
+- do not `push_files` (multi-file, atomic). 
+- provide the files and instructions to update and push them manually
 - `search_code` is unreliable. For audits, read specific files directly.
 - One chat, one theme. When the topic changes, `yeet` and open a new chat.
 
