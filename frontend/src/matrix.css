@@ -1,0 +1,198 @@
+/* Matrix view additions. All selectors are prefixed `mx-` or scoped under `.matrixview`
+   so nothing here can collide with the shared rules in index.css. */
+
+.matrixview .mx-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.matrixview .mx-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.matrixview .mx-banner {
+  margin-bottom: 12px;
+}
+
+.matrixview .mx-segmented {
+  display: inline-flex;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.matrixview .mx-seg {
+  border: 0;
+  background: #fff;
+  color: #374151;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.matrixview .mx-seg + .mx-seg {
+  border-left: 1px solid #d1d5db;
+}
+
+.matrixview .mx-seg.on {
+  background: #1f2937;
+  color: #fff;
+}
+
+.matrixview .mx-seg:focus-visible,
+.matrixview .mx-btn:focus-visible,
+.matrixview .mx-link:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.matrixview .mx-btn {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #111827;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.matrixview .mx-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.matrixview .mx-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.matrixview .mx-link {
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 6px 2px;
+}
+
+.matrixview .mx-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.matrixview .mx-caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #6b7280;
+  padding-bottom: 6px;
+}
+
+/* Codes mode needs a taller, text-first cell than the count-only default. */
+.matrixview .cell.mx-cell-codes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 86px;
+  min-width: 108px;
+  padding: 6px 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.matrixview .mx-cell-count {
+  align-self: flex-end;
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.matrixview .mx-cell-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.matrixview .mx-empty,
+.matrixview .mx-warn {
+  margin: 12px 0;
+}
+
+.matrixview .mx-warn {
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+.matrixview .mx-unplaced {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.matrixview .mx-unplaced summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.matrixview .mx-unplaced ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.matrixview .mx-unplaced li {
+  margin: 2px 0;
+}
+
+@media (max-width: 640px) {
+  .matrixview .mx-toolbar {
+    gap: 8px;
+  }
+
+  .matrixview .mx-spacer {
+    display: none;
+  }
+
+  .matrixview .cell.mx-cell-codes {
+    min-width: 88px;
+    min-height: 74px;
+    font-size: 0.65rem;
+  }
+}
+
+/* The matrix is the artifact people print. Everything that cannot be acted on
+   in print is removed; cell fills are forced so the bands survive the printer. */
+@media print {
+  .matrixview .mx-toolbar,
+  .matrixview .mx-warn,
+  .matrixview .mx-banner,
+  .mainnav {
+    display: none !important;
+  }
+
+  .matrixview .mx-scroll {
+    overflow: visible;
+  }
+
+  .matrixview .cell,
+  .matrixview .swatch {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .matrixview .mx-unplaced[open] summary {
+    list-style: none;
+  }
+}

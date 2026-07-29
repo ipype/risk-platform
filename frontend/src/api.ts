@@ -10,6 +10,9 @@ import type {
   RiskUpdate,
 } from "./types";
 
+/** Which set of scores a matrix is drawn from: pre-mitigation or post-mitigation. */
+export type MatrixBasis = "current" | "target";
+
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const ACTOR_KEY = "risk-actor";
 
@@ -31,17 +34,18 @@ function writeHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", "X-Actor": getActor() };
 }
 
+async function detailOf(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+  } catch {
+    return res.statusText;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail =
-        typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    } catch {
-      // no JSON body
-    }
-    throw new Error(`${res.status}: ${detail}`);
+    throw new Error(`${res.status}: ${await detailOf(res)}`);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -52,11 +56,12 @@ export function getCategories(): Promise<Category[]> {
 }
 
 export function getRisks(
-  params: { category?: string; status?: string } = {}
+  params: { category?: string; status?: string; limit?: number } = {}
 ): Promise<Risk[]> {
   const qs = new URLSearchParams();
   if (params.category) qs.set("category", params.category);
   if (params.status) qs.set("status", params.status);
+  if (params.limit) qs.set("limit", String(params.limit));
   const q = qs.toString();
   return fetch(`${BASE}/risks${q ? `?${q}` : ""}`).then((r) => handle<Risk[]>(r));
 }
@@ -153,36 +158,66 @@ export function saveCustomFields(cfg: CustomFieldConfig): Promise<CustomFieldCon
 }
 
 /**
- * Download the register workbook. Streams the response to a Blob and triggers a
- * browser download, so HTTP errors surface as thrown Errors instead of the user
- * landing on a broken tab.
+ * Stream a file response to a Blob and trigger a browser download, so HTTP errors
+ * surface as thrown Errors instead of the user landing on a broken tab.
  */
-export async function exportRegister(): Promise<void> {
-  const res = await fetch(`${BASE}/export/register.xlsx`);
+async function download(url: string, fallbackName: string): Promise<void> {
+  const res = await fetch(url);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail =
-        typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    } catch {
-      // no JSON body
-    }
-    throw new Error(`${res.status}: ${detail}`);
+    throw new Error(`${res.status}: ${await detailOf(res)}`);
   }
 
   const blob = await res.blob();
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const filename =
-    match?.[1] ?? `risk_register_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const filename = match?.[1] ?? fallbackName;
 
-  const url = URL.createObjectURL(blob);
+  const href = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = href;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(href);
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+export function exportRegister(): Promise<void> {
+  return download(`${BASE}/export/register.xlsx`, `risk_register_${today()}.xlsx`);
+}
+
+export interface MatrixQuery {
+  /** Impact area code, or the overall sentinel understood by the API. */
+  lens?: string;
+  basis?: MatrixBasis;
+  category?: string;
+  status?: string;
+  owner?: string;
+  showCodes?: boolean;
+  title?: string;
+}
+
+/**
+ * Export the matrix exactly as it is currently on screen. Every filter is sent to the
+ * server, which rebuilds the same grid from the same placement rules.
+ */
+export function exportMatrix(
+  query: MatrixQuery = {},
+  format: "xlsx" | "svg" = "xlsx"
+): Promise<void> {
+  const qs = new URLSearchParams();
+  if (query.lens) qs.set("lens", query.lens);
+  if (query.basis) qs.set("basis", query.basis);
+  if (query.category) qs.set("category", query.category);
+  if (query.status) qs.set("status", query.status);
+  if (query.owner) qs.set("owner", query.owner);
+  if (query.showCodes !== undefined) qs.set("show_codes", String(query.showCodes));
+  if (query.title && format === "svg") qs.set("title", query.title);
+  const q = qs.toString();
+  return download(
+    `${BASE}/export/matrix.${format}${q ? `?${q}` : ""}`,
+    `risk_matrix_${today()}.${format}`
+  );
 }
