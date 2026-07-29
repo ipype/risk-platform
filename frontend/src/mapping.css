@@ -1,0 +1,512 @@
+/* Mapping workbench.
+   Self-contained and prefixed `map-`, following matrix.css: nothing here leaks into the
+   register or matrix views, and neither can restyle this by accident. */
+
+.map {
+  --map-border: #d9dce1;
+  --map-bg: #ffffff;
+  --map-muted: #6b7280;
+  --map-sunken: #f6f7f9;
+  --map-accent: #2f6f9f;
+  --map-strong: #1f7a4d;
+  --map-moderate: #b07d1a;
+  --map-weak: #8a8f98;
+  --map-danger: #b3402f;
+  --map-high: #c0392b;
+  --map-medium: #c07a1a;
+  --map-low: #7a8089;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 24px;
+  font-size: 13px;
+  color: #1f2328;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--map-sunken);
+  border: 1px solid var(--map-border);
+  border-radius: 6px;
+}
+.map-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--map-muted);
+}
+.map-toolbar select,
+.map-toolbar input {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--map-border);
+  border-radius: 4px;
+  background: #fff;
+}
+.map-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------------------------------------------------------------- coverage */
+
+.map-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+.map-meter {
+  min-width: 220px;
+  flex: 1 1 260px;
+}
+.map-meter-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: #e6e8ec;
+  overflow: hidden;
+  display: flex;
+}
+.map-meter-accepted {
+  background: var(--map-strong);
+}
+.map-meter-proposed {
+  background: #a8c8de;
+}
+.map-meter-label {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--map-muted);
+  font-size: 12px;
+}
+.map-stat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.map-stat b {
+  font-size: 16px;
+  font-weight: 600;
+}
+.map-stat span {
+  color: var(--map-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.map-stat.is-warn b {
+  color: var(--map-danger);
+}
+
+/* ---------------------------------------------------------------- panes */
+
+.map-panes {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.8fr) minmax(260px, 1.1fr);
+  gap: 12px;
+  align-items: start;
+}
+.map-pane {
+  border: 1px solid var(--map-border);
+  border-radius: 6px;
+  background: var(--map-bg);
+  min-width: 0; /* let long activity names truncate instead of blowing out the grid */
+}
+.map-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--map-border);
+  background: var(--map-sunken);
+  border-radius: 6px 6px 0 0;
+  font-weight: 600;
+}
+.map-pane-head .map-count {
+  color: var(--map-muted);
+  font-weight: 400;
+}
+.map-pane-body {
+  max-height: 62vh;
+  overflow: auto;
+}
+
+/* ---------------------------------------------------------------- risk queue */
+
+.map-riskrow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #eceef1;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.map-riskrow:hover {
+  background: #f3f6f9;
+}
+.map-riskrow.is-selected {
+  background: #e8f1f8;
+  box-shadow: inset 3px 0 0 var(--map-accent);
+}
+.map-riskrow:focus-visible {
+  outline: 2px solid var(--map-accent);
+  outline-offset: -2px;
+}
+.map-riskrow-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.map-riskcode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--map-muted);
+}
+.map-risktitle {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- chips */
+
+.map-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.map-chip-accepted {
+  background: #e4f2ea;
+  color: var(--map-strong);
+  border-color: #bfe0cd;
+}
+.map-chip-proposed {
+  background: #e8f1f8;
+  color: var(--map-accent);
+  border-color: #c3daea;
+}
+.map-chip-unmapped {
+  background: #f4f5f6;
+  color: var(--map-muted);
+  border-color: #e0e3e7;
+}
+.map-chip-high {
+  background: #fbe9e7;
+  color: var(--map-high);
+  border-color: #f0cdc7;
+}
+.map-chip-medium {
+  background: #fcf3e2;
+  color: var(--map-medium);
+  border-color: #eedfc0;
+}
+.map-chip-low,
+.map-chip-unknown {
+  background: #f4f5f6;
+  color: var(--map-low);
+  border-color: #e0e3e7;
+}
+.map-chip-strong {
+  background: #e4f2ea;
+  color: var(--map-strong);
+  border-color: #bfe0cd;
+}
+.map-chip-moderate {
+  background: #fcf3e2;
+  color: var(--map-moderate);
+  border-color: #eedfc0;
+}
+.map-chip-weak {
+  background: #f4f5f6;
+  color: var(--map-weak);
+  border-color: #e0e3e7;
+}
+
+/* ---------------------------------------------------------------- suggestions */
+
+.map-card {
+  border-bottom: 1px solid #eceef1;
+  padding: 10px;
+}
+.map-card.is-focused {
+  background: #f3f6f9;
+  box-shadow: inset 3px 0 0 var(--map-accent);
+}
+.map-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.map-card-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-card-wbs {
+  color: var(--map-muted);
+  font-size: 11px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+.map-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Signal breakdown. Relevance only — materiality is shown as a separate chip on
+   purpose, because blending the two produces a ranker that just prefers the
+   critical path. */
+.map-signals {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 84px 1fr 34px;
+  gap: 3px 8px;
+  align-items: center;
+  font-size: 11px;
+}
+.map-signal-name {
+  color: var(--map-muted);
+}
+.map-signal-track {
+  height: 5px;
+  border-radius: 3px;
+  background: #e6e8ec;
+  overflow: hidden;
+}
+.map-signal-fill {
+  height: 100%;
+  background: var(--map-accent);
+}
+.map-signal-value {
+  text-align: right;
+  color: var(--map-muted);
+  font-variant-numeric: tabular-nums;
+}
+.map-signal-abstain {
+  color: #9aa0a8;
+  font-style: italic;
+  grid-column: 2 / span 2;
+}
+
+.map-terms {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--map-muted);
+}
+.map-term {
+  display: inline-block;
+  background: #eef2f5;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 4px;
+}
+
+/* ---------------------------------------------------------------- warnings */
+
+.map-warn {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #fdf6e6;
+  border: 1px solid #efe0bc;
+  color: #7a5c10;
+  font-size: 11.5px;
+}
+.map-warn.is-error {
+  background: #fbecea;
+  border-color: #f0cdc7;
+  color: #8d2f22;
+}
+.map-warn ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.map-banner {
+  padding: 8px 10px;
+  border: 1px solid #c3daea;
+  background: #eef5fa;
+  border-radius: 5px;
+  margin: 10px;
+}
+.map-banner-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+.map-error {
+  padding: 8px 10px;
+  border: 1px solid #f0cdc7;
+  background: #fbecea;
+  color: #8d2f22;
+  border-radius: 5px;
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.map-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--map-border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.map-btn:hover:not(:disabled) {
+  background: #f3f6f9;
+}
+.map-btn:focus-visible {
+  outline: 2px solid var(--map-accent);
+  outline-offset: 1px;
+}
+.map-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.map-btn-primary {
+  background: var(--map-accent);
+  border-color: var(--map-accent);
+  color: #fff;
+}
+.map-btn-primary:hover:not(:disabled) {
+  background: #275d87;
+}
+.map-btn-danger {
+  color: var(--map-danger);
+}
+
+/* ---------------------------------------------------------------- mappings */
+
+.map-mapping {
+  border-bottom: 1px solid #eceef1;
+  padding: 10px;
+}
+.map-mapping-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.map-mapping-type {
+  font-size: 11px;
+  color: var(--map-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.map-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.map-field input,
+.map-field textarea,
+.map-field select {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--map-border);
+  border-radius: 4px;
+  width: 100%;
+}
+.map-field textarea {
+  resize: vertical;
+  min-height: 44px;
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.map-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--map-muted);
+}
+.map-empty p {
+  margin: 0 0 8px;
+}
+.map-hint {
+  color: var(--map-muted);
+  font-size: 11px;
+}
+.map-kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  border: 1px solid var(--map-border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 4px;
+  background: #fafbfc;
+}
+.map-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--map-border);
+}
+.map-search input {
+  width: 100%;
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--map-border);
+  border-radius: 4px;
+}
+
+.map-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------- narrow */
+
+@media (max-width: 1100px) {
+  .map-panes {
+    grid-template-columns: 1fr;
+  }
+  .map-pane-body {
+    max-height: 46vh;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .map-riskrow,
+  .map-btn {
+    transition: background-color 90ms ease;
+  }
+}

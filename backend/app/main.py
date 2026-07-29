@@ -1,23 +1,24 @@
 from contextlib import asynccontextmanager
 
+from app.api.errors import register_exception_handlers
+from app.core.config import settings
+from app.db.redis import redis_client
+from app.db.session import engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.errors import register_exception_handlers
 from app.api.routes import (
     custom_fields,
     export,
     health,
     history,
+    mappings,
     matrix,
     mitigations,
     rbs,
     risks,
     schedules,
 )
-from app.core.config import settings
-from app.db.redis import redis_client
-from app.db.session import engine
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ app.include_router(mitigations.router)
 app.include_router(custom_fields.router)
 app.include_router(export.router)
 app.include_router(schedules.router)
+app.include_router(mappings.router)
 
 
 @app.get("/", tags=["root"])

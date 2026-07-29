@@ -1,13 +1,25 @@
 import type {
+  ActivityPage,
+  BulkAcceptItem,
+  BulkAcceptResult,
+  CarryForwardResult,
   Category,
-  HistoryEntry,
-  MatrixConfig,
+  CoverageReport,
   CustomFieldConfig,
+  HistoryEntry,
+  Mapping,
+  MappingCreate,
+  MappingHistoryEntry,
+  MappingUpdate,
+  MatrixConfig,
   MitigationAction,
   MitigationInput,
   Risk,
   RiskCreate,
   RiskUpdate,
+  ScheduleVersionSummary,
+  SuggestionResponse,
+  ValidateResult,
 } from "./types";
 
 /** Which set of scores a matrix is drawn from: pre-mitigation or post-mitigation. */
@@ -219,5 +231,164 @@ export function exportMatrix(
   return download(
     `${BASE}/export/matrix.${format}${q ? `?${q}` : ""}`,
     `risk_matrix_${today()}.${format}`
+  );
+}
+
+/* ------------------------------------------------------------------------- *
+ * schedule
+ * ------------------------------------------------------------------------- */
+
+export function getScheduleVersions(
+  currentOnly = false
+): Promise<ScheduleVersionSummary[]> {
+  const q = currentOnly ? "?current_only=true" : "";
+  return fetch(`${BASE}/schedules${q}`).then((r) => handle<ScheduleVersionSummary[]>(r));
+}
+
+export function getScheduleActivities(
+  versionId: number,
+  params: { q?: string; status?: string; type?: string; limit?: number } = {}
+): Promise<ActivityPage> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.status) qs.set("status", params.status);
+  if (params.type) qs.set("type", params.type);
+  qs.set("limit", String(params.limit ?? 50));
+  return fetch(`${BASE}/schedules/${versionId}/activities?${qs}`).then((r) =>
+    handle<ActivityPage>(r)
+  );
+}
+
+/* ------------------------------------------------------------------------- *
+ * risk-to-activity mapping
+ * ------------------------------------------------------------------------- */
+
+export function getSuggestions(
+  versionId: number,
+  riskId: number,
+  opts: { limit?: number; minScore?: number } = {}
+): Promise<SuggestionResponse> {
+  const qs = new URLSearchParams({
+    version_id: String(versionId),
+    risk_id: String(riskId),
+  });
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  if (opts.minScore !== undefined) qs.set("min_score", String(opts.minScore));
+  return fetch(`${BASE}/mappings/suggestions?${qs}`).then((r) =>
+    handle<SuggestionResponse>(r)
+  );
+}
+
+export function getMappings(
+  versionId: number,
+  params: { riskId?: number; status?: string; mappingType?: string } = {}
+): Promise<{ items: Mapping[]; count: number }> {
+  const qs = new URLSearchParams({ version_id: String(versionId) });
+  if (params.riskId !== undefined) qs.set("risk_id", String(params.riskId));
+  if (params.status) qs.set("status", params.status);
+  if (params.mappingType) qs.set("mapping_type", params.mappingType);
+  return fetch(`${BASE}/mappings?${qs}`).then((r) =>
+    handle<{ items: Mapping[]; count: number }>(r)
+  );
+}
+
+export function createMapping(payload: MappingCreate): Promise<Mapping> {
+  return fetch(`${BASE}/mappings`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(payload),
+  }).then((r) => handle<Mapping>(r));
+}
+
+/** Dry run: same checks as create, nothing written. Lets the UI warn before saving. */
+export function validateMapping(payload: MappingCreate): Promise<ValidateResult> {
+  return fetch(`${BASE}/mappings/validate`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(payload),
+  }).then((r) => handle<ValidateResult>(r));
+}
+
+export function updateMapping(id: number, payload: MappingUpdate): Promise<Mapping> {
+  return fetch(`${BASE}/mappings/${id}`, {
+    method: "PATCH",
+    headers: writeHeaders(),
+    body: JSON.stringify(payload),
+  }).then((r) => handle<Mapping>(r));
+}
+
+export function deleteMapping(id: number): Promise<void> {
+  return fetch(`${BASE}/mappings/${id}`, {
+    method: "DELETE",
+    headers: { "X-Actor": getActor() },
+  }).then((r) => handle<void>(r));
+}
+
+export function bulkAcceptMappings(
+  versionId: number,
+  riskId: number,
+  items: BulkAcceptItem[],
+  accept = true
+): Promise<BulkAcceptResult> {
+  return fetch(`${BASE}/mappings/bulk-accept`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify({ version_id: versionId, risk_id: riskId, items, accept }),
+  }).then((r) => handle<BulkAcceptResult>(r));
+}
+
+/**
+ * Record a dismissed suggestion. No mapping is created, but the precedent signal learns
+ * from it — a ranker that only ever sees its own accepted output confirms itself forever.
+ */
+export function rejectSuggestion(
+  versionId: number,
+  riskId: number,
+  activitySourceId: string,
+  score?: number | null
+): Promise<{ recorded: boolean }> {
+  return fetch(`${BASE}/mappings/reject-suggestion`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify({
+      version_id: versionId,
+      risk_id: riskId,
+      activity_source_id: activitySourceId,
+      score: score ?? null,
+    }),
+  }).then((r) => handle<{ recorded: boolean }>(r));
+}
+
+export function getCoverage(versionId: number): Promise<CoverageReport> {
+  return fetch(`${BASE}/mappings/coverage?version_id=${versionId}`).then((r) =>
+    handle<CoverageReport>(r)
+  );
+}
+
+export function getScheduleImpactArea(): Promise<{ schedule_impact_area: string | null }> {
+  return fetch(`${BASE}/mappings/schedule-area`).then((r) =>
+    handle<{ schedule_impact_area: string | null }>(r)
+  );
+}
+
+export function carryMappingsForward(
+  fromVersionId: number,
+  toVersionId: number,
+  includeProposed = false
+): Promise<CarryForwardResult> {
+  return fetch(`${BASE}/mappings/carry-forward`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify({
+      from_version_id: fromVersionId,
+      to_version_id: toVersionId,
+      include_proposed: includeProposed,
+    }),
+  }).then((r) => handle<CarryForwardResult>(r));
+}
+
+export function getMappingHistory(id: number): Promise<MappingHistoryEntry[]> {
+  return fetch(`${BASE}/mappings/${id}/history`).then((r) =>
+    handle<MappingHistoryEntry[]>(r)
   );
 }
