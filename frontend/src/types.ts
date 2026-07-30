@@ -466,3 +466,167 @@ export interface MappingHistoryEntry {
   changes: ChangeItem[] | null;
   created_at: string;
 }
+
+/* ------------------------------------------------------------------------- *
+ * schedule Gantt
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Which rule chose a bar's dates. Sent per row rather than inferred from the colour,
+ * because `planned` on a schedule six months into execution is a finding, not a detail.
+ */
+export type DateBasis = "actual" | "in_progress" | "planned" | "undated";
+
+export interface GanttBar {
+  source_id: string;
+  code: string;
+  name: string;
+  type: string;
+  status: string;
+  wbs_source_id: string | null;
+
+  start: string | null;
+  finish: string | null;
+  basis: DateBasis;
+
+  baseline_start: string | null;
+  baseline_finish: string | null;
+  /** Calendar days, positive for late. Not a working-day duration — see the API docstring. */
+  baseline_slip_calendar_days: number | null;
+
+  original_duration_days: number | null;
+  remaining_duration_days: number | null;
+  total_float_days: number | null;
+  /** The calendar every `*_days` value above was measured against. */
+  duration_calendar_id: string;
+
+  /** Remaining against original. Not a physical or cost percent complete. */
+  duration_pct_complete: number | null;
+
+  is_critical: boolean;
+  is_milestone: boolean;
+  /** Level-of-effort and WBS-summary rows: they take their dates from what they span. */
+  is_summary_row: boolean;
+  has_hard_constraint: boolean;
+  constraint_type: string;
+  budgeted_cost: number | null;
+}
+
+export interface GanttWbsRow {
+  source_id: string;
+  code: string;
+  name: string;
+  parent_source_id: string | null;
+  depth: number;
+  path: string;
+  /** Rolled up over the subtree and computed before truncation. */
+  start: string | null;
+  finish: string | null;
+  activity_count: number;
+  critical_count: number;
+}
+
+export interface GanttWindow {
+  start: string | null;
+  finish: string | null;
+  data_date: string | null;
+  must_finish_by: string | null;
+  baseline_finish: string | null;
+}
+
+/** Carried with the chart so a gate-blocked schedule cannot look like a green light. */
+export interface GanttGate {
+  run_id: number;
+  gate_passed: boolean;
+  blocking_failures: number[];
+  run_at: string;
+}
+
+export interface GanttVersion {
+  id: number;
+  project_name: string;
+  source_project_id: string;
+  source_format: string;
+  parser_version: string;
+  is_current: boolean;
+  activity_count: number;
+  relationship_count: number;
+  warnings: string[];
+}
+
+/** Totals over the filtered set, before truncation — never derivable from `activities`. */
+export interface GanttCounts {
+  activities: number;
+  critical: number;
+  milestones: number;
+  /** No usable date. A parse-quality finding: it cannot be scheduled or simulated. */
+  undated: number;
+  complete: number;
+  in_progress: number;
+}
+
+export interface GanttPayload {
+  version: GanttVersion;
+  window: GanttWindow;
+  counts: GanttCounts;
+  gate: GanttGate | null;
+  wbs: GanttWbsRow[];
+  /** Display order: WBS depth-first, then start date within a node. Kept as sent. */
+  activities: GanttBar[];
+  returned: number;
+  /** Matching the filter before the limit was applied. */
+  total: number;
+  truncated: boolean;
+  limit: number;
+  filters: { wbs: string | null; critical_only: boolean; q: string | null };
+}
+
+/** Bucket for activities whose WBS reference is missing or points outside the export. */
+export const NO_WBS_KEY = "__no_wbs__";
+
+export type LandingVia = "direct" | "scope" | "insert_predecessor" | "insert_successor";
+
+export interface LandedRisk {
+  mapping_id: number;
+  risk_id: number;
+  risk_code: string | null;
+  title: string | null;
+  mapping_type: MappingType;
+  status: MappingStatus;
+  via: LandingVia;
+}
+
+/** Counts stay exact even when `risks` is capped; `risks_truncated` says by how much. */
+export interface ActivityLanding {
+  accepted: number;
+  proposed: number;
+  risks: LandedRisk[];
+  risks_truncated: number;
+}
+
+export interface ActivityLandings {
+  version_id: number;
+  landings: Record<string, ActivityLanding>;
+  activities_touched: number;
+  risks_landed: number;
+  mappings_live: number;
+  scoped_drivers: number;
+  max_risks_per_activity: number;
+}
+
+export interface ScheduleRelationship {
+  id: number;
+  source_id: string;
+  predecessor_source_id: string;
+  successor_source_id: string;
+  type: string;
+  lag_days: number | null;
+  lag_calendar_id: string | null;
+}
+
+export interface RelationshipPage {
+  total: number;
+  limit: number;
+  offset: number;
+  items: ScheduleRelationship[];
+}

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.mapping import MappingHistory, RiskActivityMapping
 from app.services.mapping_service import (
     LIVE_STATUSES,
+    activity_landings,
     carry_forward,
     changes_between,
     corpus_for,
@@ -357,6 +358,20 @@ async def get_coverage(version_id: int = Query(...), db: AsyncSession = Depends(
     """
     await _require_version(db, version_id)
     return await coverage_report(db, version_id)
+
+
+@router.get("/activity-landings")
+async def get_activity_landings(
+    version_id: int = Query(...), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Where risks land on the network, keyed by activity, for the Gantt overlay.
+
+    Separate from the Gantt payload on purpose: the schedule read stays free of the
+    mapping tables, and a failure here degrades to a chart without badges rather than no
+    chart at all.
+    """
+    await _require_version(db, version_id)
+    return await activity_landings(db, version_id)
 
 
 @router.get("/schedule-area")

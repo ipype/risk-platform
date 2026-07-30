@@ -19,6 +19,9 @@ import type {
   Risk,
   RiskCreate,
   RiskUpdate,
+  ActivityLandings,
+  GanttPayload,
+  RelationshipPage,
   ScheduleFormat,
   ScheduleUploadResult,
   ScheduleVersionSummary,
@@ -313,6 +316,56 @@ export function getScheduleActivities(
   qs.set("limit", String(params.limit ?? 50));
   return fetch(`${BASE}/schedules/${versionId}/activities?${qs}`).then((r) =>
     handle<ActivityPage>(r)
+  );
+}
+
+/**
+ * Ceiling on bars in one Gantt response. Mirrors `MAX_GANTT_ROWS` in
+ * `schedule_gantt.py`, which rejects anything higher with a 422 — asking for more than
+ * the server allows is how the mapping tab spent a release insisting no schedule had
+ * been imported.
+ */
+export const GANTT_ROW_LIMIT = 5000;
+
+export interface GanttQuery {
+  /** Restrict to a WBS node and everything under it. */
+  wbs?: string | null;
+  criticalOnly?: boolean;
+  q?: string | null;
+  limit?: number;
+}
+
+/** The whole chart in one request: ordering only makes sense once, server-side. */
+export function getGantt(versionId: number, query: GanttQuery = {}): Promise<GanttPayload> {
+  const qs = new URLSearchParams();
+  if (query.wbs) qs.set("wbs", query.wbs);
+  if (query.criticalOnly) qs.set("critical_only", "true");
+  if (query.q) qs.set("q", query.q);
+  qs.set("limit", String(Math.min(query.limit ?? 2000, GANTT_ROW_LIMIT)));
+  return fetch(`${BASE}/schedules/${versionId}/gantt?${qs}`).then((r) =>
+    handle<GanttPayload>(r)
+  );
+}
+
+/**
+ * Where risks land on the network, keyed by activity. Separate from the chart on
+ * purpose: a `scoped_driver` only resolves against the mapping tables, and a failure
+ * here should cost the badges rather than the whole Gantt.
+ */
+export function getActivityLandings(versionId: number): Promise<ActivityLandings> {
+  return fetch(`${BASE}/mappings/activity-landings?version_id=${versionId}`).then((r) =>
+    handle<ActivityLandings>(r)
+  );
+}
+
+/** The links on either side of one activity — why its bar sits where it does. */
+export function getRelationshipsTouching(
+  versionId: number,
+  activitySourceId: string
+): Promise<RelationshipPage> {
+  const qs = new URLSearchParams({ touching: activitySourceId, limit: "200" });
+  return fetch(`${BASE}/schedules/${versionId}/relationships?${qs}`).then((r) =>
+    handle<RelationshipPage>(r)
   );
 }
 

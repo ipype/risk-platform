@@ -21,6 +21,12 @@ from app.models.schedule import (
 )
 from app.schedule.dcma import DcmaThresholds
 from app.schedule.parsers import parse_schedule, parser_for, supported_formats
+from app.services.schedule_gantt import (
+    DEFAULT_GANTT_ROWS,
+    MAX_GANTT_ROWS,
+    GanttPayload,
+    build_gantt,
+)
 from app.services.schedule_ingest import (
     MAX_UPLOAD_BYTES,
     create_version,
@@ -333,9 +339,40 @@ async def list_activities(
     }
 
 
+@router.get("/{version_id}/gantt")
+async def get_gantt(
+    version_id: int,
+    wbs: str | None = Query(
+        default=None, description="Restrict to this WBS node and everything under it"
+    ),
+    critical_only: bool = Query(default=False),
+    q: str | None = Query(default=None, description="Substring match on code or name"),
+    limit: int = Query(default=DEFAULT_GANTT_ROWS, ge=1, le=MAX_GANTT_ROWS),
+    db: AsyncSession = Depends(get_db),
+) -> GanttPayload:
+    """Everything needed to draw the schedule, in display order.
+
+    One request rather than a page walk: a Gantt is only readable when the whole ordering
+    is settled, and ordering the rows client-side across pages means the WBS tree assembles
+    differently depending on how far the user scrolled. Large schedules come back truncated
+    with the true total, and the filters above are the way through — not a bigger page.
+    """
+    version = await _get_version(db, version_id)
+    return await build_gantt(
+        db, version, wbs=wbs, critical_only=critical_only, q=q, limit=limit
+    )
+
+
 @router.get("/{version_id}/relationships")
 async def list_relationships(
     version_id: int,
+    touching: str | None = Query(
+        default=None,
+        description=(
+            "Activity source id. Returns only the links on either side of it — the "
+            "answer to 'why does this bar sit here', without pulling the whole network."
+        ),
+    ),
     limit: int = Query(default=500, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -344,6 +381,11 @@ async def list_relationships(
     stmt = select(ScheduleRelationship).where(
         ScheduleRelationship.version_id == version_id
     )
+    if touching:
+        stmt = stmt.where(
+            (ScheduleRelationship.predecessor_source_id == touching)
+            | (ScheduleRelationship.successor_source_id == touching)
+        )
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = (
         await db.scalars(

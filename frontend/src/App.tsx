@@ -6,12 +6,14 @@ import CustomFieldsView from "./views/CustomFieldsView";
 import ActivityView from "./views/ActivityView";
 import MappingView from "./views/MappingView";
 import ScheduleView from "./views/ScheduleView";
+import GanttView from "./views/GanttView";
 import { getActor, setActor } from "./api";
 
 type View =
   | "register"
   | "matrix"
   | "schedule"
+  | "gantt"
   | "mapping"
   | "activity"
   | "fields"
@@ -38,6 +40,9 @@ export default function App() {
         <button className={view === "schedule" ? "navlink active" : "navlink"} onClick={() => setView("schedule")}>
           Schedule
         </button>
+        <button className={view === "gantt" ? "navlink active" : "navlink"} onClick={() => setView("gantt")}>
+          Gantt
+        </button>
         <button className={view === "mapping" ? "navlink active" : "navlink"} onClick={() => setView("mapping")}>
           Schedule mapping
         </button>
@@ -63,6 +68,7 @@ export default function App() {
       {view === "register" && <RegisterView />}
       {view === "matrix" && <MatrixView />}
       {view === "schedule" && <ScheduleView />}
+      {view === "gantt" && <GanttView />}
       {view === "mapping" && <MappingView />}
       {view === "activity" && <ActivityView />}
       {view === "fields" && <CustomFieldsView />}

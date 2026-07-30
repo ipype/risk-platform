@@ -1,0 +1,798 @@
+/* Gantt. Namespaced `gt-` alongside `sch-` and `map-`.
+ *
+ * The whole chart is one scroll container. The label column is `position: sticky; left: 0`
+ * and the header `sticky; top: 0`, which is what keeps the panes locked together without
+ * any scroll-sync code. Nothing between `.gt-chart` and a sticky child may set `overflow`
+ * — that silently kills stickiness, and the symptom is labels that scroll away rather
+ * than an error. */
+
+.gt {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.gt-subtitle {
+  margin-left: 12px;
+  font-size: 13px;
+}
+
+.gt-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.gt-control {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.gt-control select,
+.gt-control input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+  max-width: 240px;
+}
+
+.gt-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  padding-bottom: 5px;
+}
+
+.gt-zoom {
+  display: flex;
+  padding-bottom: 4px;
+}
+
+.gt-zoom-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-right-width: 0;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.gt-zoom-btn:first-child {
+  border-radius: 5px 0 0 5px;
+}
+
+.gt-zoom-btn:last-child {
+  border-right-width: 1px;
+  border-radius: 0 5px 5px 0;
+}
+
+.gt-zoom-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.gt-zoom-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+/* -- banners and stats ---------------------------------------------------- */
+
+.gt-banner {
+  margin: 8px 0 0;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 4px;
+  background: var(--card);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.gt-banner--warn {
+  border-left-color: var(--danger);
+  background: #fdf6f6;
+}
+
+.gt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.gt-stats strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.gt-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.gt-key {
+  display: inline-block;
+  width: 11px;
+  height: 9px;
+  border-radius: 2px;
+  margin-left: 8px;
+  background: var(--primary);
+}
+
+.gt-key--critical {
+  background: var(--danger);
+}
+
+.gt-key--done {
+  background: #8f9aa6;
+}
+
+.gt-key--wip {
+  background: linear-gradient(90deg, var(--primary) 55%, #cfd8dc 55%);
+}
+
+.gt-key--risk {
+  background: #6b4fa8;
+  border-radius: 50%;
+  width: 9px;
+}
+
+/* -- workspace ------------------------------------------------------------ */
+
+.gt-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.gt-workspace.has-detail {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+/* -- the chart ------------------------------------------------------------ */
+
+.gt-chart {
+  position: relative;
+  overflow: auto;
+  height: clamp(320px, calc(100vh - 320px), 900px);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+
+.gt-chart:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.gt-content {
+  position: relative;
+}
+
+.gt-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.gt-head-corner {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  flex: 0 0 var(--gt-label-w);
+  width: var(--gt-label-w);
+  display: flex;
+  align-items: flex-end;
+  padding: 0 8px 4px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+}
+
+.gt-head-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.gt-head-scale {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.gt-tick {
+  position: absolute;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+}
+
+.gt-tick--top {
+  top: 4px;
+  height: 18px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.gt-tick--bottom {
+  top: 24px;
+  height: 18px;
+}
+
+.gt-tick span {
+  padding-left: 4px;
+}
+
+/* -- guides --------------------------------------------------------------- */
+
+.gt-guides {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gt-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.55;
+}
+
+.gt-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--muted);
+}
+
+.gt-guide-label {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--card);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.gt-guide--data {
+  border-left-color: #2f6f4e;
+}
+
+.gt-guide--data .gt-guide-label {
+  color: #2f6f4e;
+}
+
+.gt-guide--today {
+  border-left-style: solid;
+  border-left-color: #3b6ea5;
+}
+
+.gt-guide--today .gt-guide-label {
+  color: #3b6ea5;
+}
+
+.gt-guide--mfb {
+  border-left-color: var(--danger);
+}
+
+.gt-guide--mfb .gt-guide-label {
+  color: var(--danger);
+}
+
+/* -- rows ----------------------------------------------------------------- */
+
+.gt-rows {
+  position: relative;
+  z-index: 2;
+}
+
+.gt-row {
+  display: flex;
+  /* Set from ROW_H in GanttChart.tsx. Windowing arithmetic depends on the rendered row
+     being exactly this tall, so the number has one home and CSS reads it. */
+  height: var(--gt-row-h);
+  align-items: stretch;
+}
+
+.gt-row.is-selected .gt-label,
+.gt-row.is-selected .gt-track {
+  background: rgba(47, 111, 78, 0.09);
+}
+
+.gt-row--wbs .gt-label {
+  font-weight: 600;
+  background: #f2f4f5;
+}
+
+/* Translucent, not solid: a solid band would hide the gridlines and the data-date line
+   wherever a branch header falls. */
+.gt-row--wbs .gt-track {
+  background: rgba(30, 33, 37, 0.045);
+}
+
+.gt-label {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: 0 0 var(--gt-label-w);
+  width: var(--gt-label-w);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--text);
+  background: var(--card);
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid #f0f1f2;
+  padding-right: 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.gt-label:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.gt-caret {
+  flex: 0 0 10px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.gt-caret--empty {
+  visibility: hidden;
+}
+
+.gt-code,
+.gt-wbs-code {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.gt-name,
+.gt-wbs-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gt-wbs-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.gt-risk {
+  flex: 0 0 auto;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.gt-risk--accepted {
+  background: #6b4fa8;
+  color: #fff;
+}
+
+.gt-risk--proposed {
+  border: 1px dashed #6b4fa8;
+  color: #6b4fa8;
+  line-height: 13px;
+}
+
+.gt-track {
+  position: relative;
+  flex: 1 1 auto;
+  border-bottom: 1px solid #f0f1f2;
+  cursor: pointer;
+}
+
+/* -- bars ----------------------------------------------------------------- */
+
+.gt-bar {
+  position: absolute;
+  top: 6px;
+  height: 13px;
+  border-radius: 3px;
+  background: var(--primary);
+  overflow: hidden;
+}
+
+.gt-bar--critical {
+  background: var(--danger);
+}
+
+.gt-bar--done {
+  background: #8f9aa6;
+}
+
+.gt-bar--loe {
+  background: repeating-linear-gradient(
+    45deg,
+    #b9c2cb,
+    #b9c2cb 3px,
+    #d6dce1 3px,
+    #d6dce1 6px
+  );
+  height: 8px;
+  top: 9px;
+}
+
+.gt-bar--constrained {
+  box-shadow: inset 0 0 0 1px #7a5a00;
+}
+
+.gt-bar.is-selected,
+.gt-milestone.is-selected {
+  outline: 2px solid #1e2125;
+  outline-offset: 1px;
+}
+
+.gt-progress {
+  height: 100%;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.gt-baseline {
+  position: absolute;
+  top: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: #9aa3ab;
+}
+
+.gt-summary {
+  position: absolute;
+  top: 9px;
+  height: 7px;
+  background: #4a5560;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 100%,
+    calc(100% - 5px) 40%,
+    5px 40%,
+    0 100%
+  );
+}
+
+.gt-milestone {
+  position: absolute;
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  margin-left: -5px;
+  background: var(--text);
+  transform: rotate(45deg);
+}
+
+.gt-milestone.is-critical {
+  background: var(--danger);
+}
+
+.gt-nodates {
+  position: absolute;
+  left: 6px;
+  top: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  padding: 0 5px;
+  background: var(--card);
+}
+
+.gt-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* -- detail panel --------------------------------------------------------- */
+
+.gt-detail {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 12px 14px;
+  overflow: auto;
+  height: clamp(320px, calc(100vh - 320px), 900px);
+  font-size: 13px;
+}
+
+.gt-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.gt-detail-head h2 {
+  margin: 2px 0 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.gt-detail-code {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-detail-path {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.gt-detail-close {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.gt-detail-close:focus-visible {
+  outline: 2px solid var(--primary);
+}
+
+.gt-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 10px 0 8px;
+}
+
+.gt-tag {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #eef0f2;
+  color: var(--muted);
+}
+
+.gt-tag--critical {
+  background: #fbeaea;
+  color: var(--danger);
+}
+
+.gt-tag--warn {
+  background: #fdf3e0;
+  color: #7a5a00;
+}
+
+.gt-detail-basis {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.gt-detail section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.gt-detail h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gt-detail h4 {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.gt-detail-counts {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.gt-detail-none {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.gt-fields {
+  margin: 0;
+}
+
+.gt-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.gt-field dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.gt-field dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-field-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: normal;
+}
+
+.gt-landed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gt-landed li {
+  border-left: 3px solid #6b4fa8;
+  padding: 4px 0 4px 8px;
+  margin-bottom: 6px;
+}
+
+.gt-landed--proposed {
+  border-left-style: dashed;
+}
+
+.gt-landed-code {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-landed-title {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.gt-landed-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.gt-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gt-links li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.gt-link-jump {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 1px 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.gt-link-jump:hover:not(:disabled) .gt-link-name {
+  text-decoration: underline;
+}
+
+.gt-link-jump:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.gt-link-jump:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.gt-link-code {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gt-link-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gt-link-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- narrow screens ------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .gt-workspace.has-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gt-chart,
+  .gt-detail {
+    height: clamp(280px, 60vh, 640px);
+  }
+
+  .gt-control select,
+  .gt-control input {
+    max-width: 100%;
+  }
+}

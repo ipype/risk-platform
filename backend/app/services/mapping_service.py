@@ -356,6 +356,96 @@ async def coverage_report(db: AsyncSession, version_id: int) -> dict:
     }
 
 
+#: Risk entries listed per activity before the list is cut short. Counts stay exact; only
+#: the names are capped, because one scoped driver over a whole WBS branch would otherwise
+#: repeat every risk on every bar.
+MAX_LANDINGS_PER_ACTIVITY = 20
+
+
+async def activity_landings(db: AsyncSession, version_id: int) -> dict:
+    """Which risks land on which activity, keyed by ``activity_source_id``.
+
+    Written for the Gantt overlay, and the reason that overlay cannot be assembled from
+    ``GET /mappings`` client-side: a ``scoped_driver`` is a filter, not a list, and only
+    resolves here against the version's activities.
+
+    Accepted and proposed are counted apart and never summed. A proposal is not register
+    state (invariant 4), so a bar carrying three proposals must not look like a bar
+    carrying three decisions.
+    """
+    activities = await load_activities(db, version_id)
+    valid = {a.source_id for a in activities}
+
+    mappings = (
+        await db.scalars(
+            select(RiskActivityMapping)
+            .where(
+                RiskActivityMapping.version_id == version_id,
+                RiskActivityMapping.status.in_(LIVE_STATUSES),
+            )
+            .order_by(RiskActivityMapping.id)
+        )
+    ).all()
+
+    risk_ids = {m.risk_id for m in mappings}
+    risks = (
+        (await db.scalars(select(Risk).where(Risk.id.in_(risk_ids)))).all() if risk_ids else []
+    )
+    risk_by_id = {r.id: r for r in risks}
+
+    landings: dict[str, dict] = {}
+    scoped_drivers = 0
+
+    def touch(source_id: str, mapping: RiskActivityMapping, via: str) -> None:
+        if source_id not in valid:
+            # A mapping pointing at an activity this version does not have. Carry-forward
+            # is meant to catch that, but a stale row must not invent a bar.
+            return
+        entry = landings.setdefault(
+            source_id,
+            {"accepted": 0, "proposed": 0, "risks": [], "risks_truncated": 0},
+        )
+        entry[mapping.status] = entry.get(mapping.status, 0) + 1
+        if len(entry["risks"]) >= MAX_LANDINGS_PER_ACTIVITY:
+            entry["risks_truncated"] += 1
+            return
+        risk = risk_by_id.get(mapping.risk_id)
+        entry["risks"].append(
+            {
+                "mapping_id": mapping.id,
+                "risk_id": mapping.risk_id,
+                "risk_code": risk.risk_code if risk else None,
+                "title": risk.title if risk else None,
+                "mapping_type": mapping.mapping_type,
+                "status": mapping.status,
+                "via": via,
+            }
+        )
+
+    for mapping in mappings:
+        if mapping.mapping_type == "scoped_driver":
+            scoped_drivers += 1
+            for activity in resolve_scope(mapping.scope, activities):
+                touch(activity.source_id, mapping, "scope")
+        elif mapping.mapping_type == "inserted_activity":
+            if mapping.predecessor_source_id:
+                touch(mapping.predecessor_source_id, mapping, "insert_predecessor")
+            if mapping.successor_source_id:
+                touch(mapping.successor_source_id, mapping, "insert_successor")
+        elif mapping.activity_source_id:
+            touch(mapping.activity_source_id, mapping, "direct")
+
+    return {
+        "version_id": version_id,
+        "landings": landings,
+        "activities_touched": len(landings),
+        "risks_landed": len({m.risk_id for m in mappings}),
+        "mappings_live": len(mappings),
+        "scoped_drivers": scoped_drivers,
+        "max_risks_per_activity": MAX_LANDINGS_PER_ACTIVITY,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # carry-forward
 # --------------------------------------------------------------------------- #
