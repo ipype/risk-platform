@@ -3,6 +3,10 @@
 Open before editing a subsystem documented here, or when unsure why the code is the way it
 is. Invariants, gotchas, dated decisions. Append, do not rewrite history.
 
+Schedule ingestion, the DCMA gate, the Gantt and risk-to-activity mapping split out to
+`claude/ref/schedule.md` on 2026-07-30. What stays here is cross-cutting: it applies
+whatever subsystem you are in.
+
 ## Invariants
 
 ### Percentile arithmetic
@@ -38,38 +42,41 @@ only discrete risks produces an unrealistically tight base distribution.
 Durations in working days, always paired with the calendar ID used to compute them.
 Calendar-agnostic day counts are a silent corruption source across `.xer` imports.
 
-### Gate visibility
-
-Invariant 3 keeps a DCMA-failing schedule out of simulation. It does not stop that schedule
-*looking* fine on the way there. Any view that renders a schedule version — the Gantt, and
-later the S-curve, tornado, JCL scatter and every exported report — must carry and state
-the gate verdict, because a chart that draws a failed schedule exactly as well as a passing
-one is read as endorsement. `GET /schedules/{id}/gantt` returns `gate` for this reason.
-
 ## Gotchas
 
-- `.xer` files carry multiple projects and baselines in one export. Always resolve which
-  project ID is intended rather than taking the first.
-- MPXJ returns constraint types and calendars that P6 and MS Project define differently.
-  Normalise at the parse boundary, not downstream.
-- **Never trust a foreign key that came out of a parse.** A `.xer` can reference a WBS id
-  it does not contain. Bucketing activities by `wbs_source_id` without checking the id
-  exists dropped those activities off the Gantt entirely — no error, just a row count that
-  quietly disagreed with the register (found and fixed 2026-07-30). Bucket against the set
-  of keys that actually exist, fall back to an explicit "unknown" group, and keep the raw
-  value on the row so the bad reference stays visible rather than being laundered.
 - **`make fmt` is not safe to run casually.** There is no ruff config in the repo, so
   `ruff format .` uses ruff's default 88 rather than the 100 this file's conventions once
   claimed, and the tree is clean at neither width — 25 files would reformat. Running it
   over pre-existing files pulls hundreds of lines of unrelated reflow into your diff. When
   editing an existing file, match its surrounding hand-wrapped style; new files can be
   format-clean at 88. See `BACKLOG.md` → Surfaced 2026-07-30.
-- - Verify against the repo's *pinned* dependency versions (`requirements.txt` /
+- Verify against the repo's *pinned* dependency versions (`requirements.txt` /
   `requirements-dev.txt`), not whatever a bare `pip install <pkg>` resolves to. An
   unpinned FastAPI silently guards a `-> None` + `status_code=204` edge case that the
   pinned `fastapi==0.115.6` does not — a route crashed on container boot despite passing
   67/67 tests, because the tests ran against a newer, unpinned FastAPI. See the
   2026-07-29 decision below for the exact mechanism.
+- **In-memory SQLite is a single connection, and a held transaction deadlocks the suite.**
+  SQLAlchemy backs `sqlite+aiosqlite://` with a `StaticPool` — one DBAPI connection for the
+  whole engine. A test that reads through a session fixture and then calls the ASGI client
+  hangs forever rather than failing: the fixture's session still holds an open transaction,
+  the request waits for the only connection, and there is no traceback to read. Note that
+  `expire_on_commit` makes this easy to hit by accident, because touching any attribute
+  after a commit opens a *new* transaction. Scope every direct database read to its own
+  `async with session_factory() as db:` block so the connection is always released
+  (found 2026-07-30, cost about twenty minutes).
+- **A test harness that creates a subset of tables still needs the whole metadata.**
+  `create_all(tables=[...])` cannot emit a foreign key unless the *target* `Table` object
+  is registered, even when the target table is deliberately not created. Import
+  `app.db.base` in `conftest.py` for its side effect. Without it, whether the harness works
+  depends on whether some earlier test module happened to import the missing model first —
+  which is how `tests/conftest.py` passed a full-suite run and failed when its own file was
+  run alone (found 2026-07-30).
+- **`ondelete="CASCADE"` is a Postgres promise, not a portable one.** SQLite ignores foreign
+  keys entirely unless `PRAGMA foreign_keys=ON`, so a delete that leans on the database to
+  clean up children behaves differently under test than in production. Delete children
+  explicitly in dependency order where the result matters — it also lets the code report
+  rows it actually removed rather than a number it assumed.
 
 ## Decisions
 
@@ -79,42 +86,6 @@ Hub-and-satellite adopted. `CLAUDE.md` is a map read every session; `SYSTEM.md` 
 `ACTIVE.md` join it at bootstrap; everything else is trigger-read. Rationale: bootstrap cost
 is paid every chat, so it must stay small, and a map means an unread file is never a lost
 file. Split, never consolidate.
-
-### 2026-07-29 — risk-to-activity mapping design
-
-Built the `.xer`-only risk-to-activity mapping subsystem (`.mpp`/MPXJ parked for now).
-Locked in:
-
-- **Mapping stores *where*, not *how much*.** No distribution parameters on
-  `risk_activity_mapping` — that belongs to quantitative elicitation. Keeps re-mapping and
-  re-eliciting independent of each other.
-- **Three mapping types, one correlation semantic each.** `duration_driver` — one sampled
-  factor shared across every activity it drives (the Hulett risk-driver method, and the
-  reason those activities come out correlated without a hand-built correlation matrix), so
-  `allocation_pct` is refused on it at the API edge. `inserted_activity` — allocation *is*
-  meaningful here: 60 days over three insertion points is not 60 at each.
-  `scoped_driver` — a filter resolved at read time against the current schedule version,
-  never frozen at save time, so a WBS branch that gains activities gains coverage
-  automatically.
-- **Relevance and materiality never blend.** "Is this the right activity" and "does delay
-  here move the finish date" are reported as separate axes and shown as separate chips in
-  the UI. Blending them produces a ranker that prefers the critical path regardless of
-  actual match quality — a real risk with a design that maps every risk onto the same
-  dozen activities.
-- **Signals abstain (`null`) rather than scoring zero** when there is no evidence — a
-  fresh install with no acceptance/rejection history, or an RBS category outside the
-  lexicon. The blend renormalises over whichever signals fired instead of treating an
-  abstention as a zero, which would otherwise make every new install's suggestions read as
-  weak regardless of how well the wording actually matched.
-- **Carry-forward matches on activity `code`, not `source_id`.** The P6 task id
-  (`source_id`) is a database key of whichever P6 instance produced the export and does
-  not survive a database move; the analyst-facing activity ID (`code`) does. Carried
-  mappings land as `proposed` regardless of their prior status — the network changed, so
-  it is a claim again, not a decision.
-- Domain validation is split into two severities: milestone/completed-activity drivers and
-  empty scopes are `error:` and block the write (422); float, hard constraints, and a
-  missing predecessor/successor relationship are warnings — recorded, but the analyst's
-  call to make.
 
 ### 2026-07-29 — verify against pinned dependencies, not resolved-latest
 
@@ -130,58 +101,6 @@ verification for this repo must run against `requirements.txt` +
 substitute and can hide version-dependent bugs that only appear in the pinned production
 environment.
 
-### 2026-07-30 — Gantt render, and the answer to the Gantt component question
-
-Build-schedule item 2.4. Storage had shipped in `0009`; this was render plus the two
-endpoints render needed.
-
-- **No commercial Gantt component. Built in-house, no new dependency.** This closes one of
-  the five original architecture questions. Bryntum, DHTMLX and Syncfusion all sell
-  drag-drop rescheduling, resource views and inline editing; this schedule is imported,
-  read-only, and never edited in the app. What the platform actually needs is dense
-  read-only rendering of thousands of rows plus custom overlays — risk landings now, P-band
-  and criticality-index shading when P3 and P4 land — and custom overlay rendering is
-  precisely where those components fight you. `frontend/package.json` also had exactly two
-  dependencies (`react`, `react-dom`) before this, and the finished chart added none: 244 KB
-  bundle total.
-- **The Gantt payload derives from `hydrate()`, not from the ORM rows.** One read path, so
-  the chart cannot drift from what the gate assessed and the simulation will read. It also
-  inherits `hydrate`'s naive-datetime normalization for free, and a min/max over a mixed
-  naive/aware set is the same comparison that took down every upload on 2026-07-29.
-- **Risk landings stay out of the schedule read.** `GET /mappings/activity-landings` is a
-  separate call the client joins client-side, for two reasons: a `scoped_driver` is a
-  filter rather than a list and only resolves against the mapping tables, so folding it in
-  would drag those tables into every schedule read and put scope semantics in two places;
-  and a failure there should cost the risk badges, not the whole chart. The view uses
-  `Promise.allSettled` and degrades to a chart with a banner.
-- **Accepted and proposed landings are counted apart and never summed** (invariant 4). A
-  bar carrying three proposals must not look like a bar carrying three decisions. Filled
-  badge for accepted, dashed outline for proposed.
-- **Counts and WBS rollups are computed on the filtered set before truncation.** A large
-  schedule returns a truncated bar list with the true total; branch headers and totals keep
-  describing the whole schedule. Shrinking them to match the returned page would make the
-  numbers agree with each other and disagree with the project.
-- **Bar dates are resolved server-side with the rule sent alongside them** — `actual`,
-  `in_progress`, `planned` or `undated`, via the domain's own `forecast_start` /
-  `forecast_finish`. The basis travels because `planned` on a schedule six months into
-  execution is a finding, not a formatting detail. An activity with no usable dates is
-  reported as `undated` rather than parked at the epoch.
-- **Slip is in calendar days and named for it** (`baseline_slip_calendar_days`). There is no
-  single calendar a slip between two activities could honestly be measured on, and the Units
-  invariant forbids an unpaired working-day count. Same honesty applies to
-  `duration_pct_complete`: it is remaining against original, not a physical or cost percent,
-  because neither `.xer` nor `.mpp` carries one the parser keeps.
-- **No dependency arrows.** Across thousands of windowed rows an arrow to an off-screen row
-  is a line you cannot follow. `GET /relationships?touching=<source_id>` feeds a named
-  predecessor/successor list in the detail panel, each entry clickable to expand ancestors,
-  scroll and select — which also carries relationship type and lag, as an arrow never does.
-- **One scroll container, sticky header and sticky label column.** Scroll-sync between two
-  scrollers is the classic Gantt bug and there was no reason to own it. Nothing between
-  `.gt-chart` and a sticky child may set `overflow`: that kills stickiness silently, and the
-  symptom is labels that scroll away rather than an error. Rows are fixed-height and
-  windowed; `ROW_H` is published to CSS as `--gt-row-h` so the windowing arithmetic and the
-  rendered height cannot diverge.
-
 ### 2026-07-30 — verify against a local clone of the real tree
 
 The repo is public and `github.com` / `codeload.github.com` are reachable from the sandbox,
@@ -191,3 +110,23 @@ through the upload path. Prefer this to a hand-built harness. A harness with stu
 views is what left the 2026-07-29 mapping frontend delta unconfirmed across two sessions —
 it was in fact fine, and one clone would have said so. Writes are still Sam's `git push`;
 cloning is read-only and unrelated to the MCP write block.
+
+**Extended 2026-07-30 (second session):** finish by unpacking the delivered zip over a
+*fresh* clone and re-running the suite there. Verifying in the working tree proves the code
+is right; verifying in a fresh clone proves the zip is, which is the artefact Sam actually
+applies. Catches a file staged from the wrong path or omitted from the archive — neither of
+which the working tree can tell you about.
+
+### 2026-07-30 — pure frontend logic is verified but not committed
+
+Twice now — the Gantt's row flattening and scale arithmetic in 2.4, the arrow geometry in
+this session — the most test-worthy code in a delivery has been validated by a throwaway
+`esbuild` + `node` script and shipped with no committed test. The script is real
+verification against the real module, not a mock, and the arrow work ran 33 assertions
+including a property over all eight routing combinations. But it lives in `/tmp` and dies
+with the session, so the third change to that code has nothing to run.
+
+This is a stack decision, not a delivery decision, which is why it keeps getting deferred:
+adding Vitest means adding a dev dependency and a `make test` target to a repo that has
+deliberately kept `frontend/package.json` at two runtime dependencies. Recorded here so the
+cost is visible rather than rediscovered. See `BACKLOG.md` → Surfaced.

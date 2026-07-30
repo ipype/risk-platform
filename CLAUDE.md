@@ -23,7 +23,8 @@ probabilistic math, schedule semantics, or the audit trail is never cheap to rev
 | `claude/SYSTEM.md` | Bootstrap. Stable primitives: IDs, env, ports, commands, standing rules. |
 | `claude/ACTIVE.md` | Bootstrap. In-flight work only. Target < 100 lines. |
 | `claude/BACKLOG.md` | Current work finished, I ask what is pending, or a watch item may have fired. |
-| `claude/REFERENCE.md` | Before editing a subsystem it documents, or when unsure why the code is the way it is. Invariants, gotchas, dated decisions. |
+| `claude/REFERENCE.md` | Before editing a subsystem it documents, or when unsure why the code is the way it is. Cross-cutting invariants, gotchas, dated decisions. |
+| `claude/ref/schedule.md` | Before editing `app/schedule/`, `app/services/schedule_*`, the `schedules` or `mappings` routes, or anything under `components/gantt/` or `components/mapping/`. Ingestion, the DCMA gate, the Gantt, risk-to-activity mapping. |
 | `claude/ref/<topic>.md` | Named directly. Split out when one subsystem's notes pass ~150 lines. |
 | `claude/plans/<n>.md` | Named directly. One file per multi-session initiative. |
 | `claude/sessions/` | Write-only archive. Never read unless I ask about a specific date. |
@@ -131,7 +132,9 @@ make migration m="..."  # alembic revision --autogenerate
 
 ## Non-negotiable invariants
 
-Violating any of these is a correctness bug, not a style opinion. Detail in `REFERENCE.md`.
+Violating any of these is a correctness bug, not a style opinion. Detail in
+`REFERENCE.md`, except invariant 3 — the gate — which lives in `claude/ref/schedule.md`
+with the rest of the schedule notes.
 
 1. **Never add percentiles.** Cost contingency and schedule-driven burn-rate cost are
    integrated *inside each iteration*, then percentiled once at the end. P80 cost + P80
