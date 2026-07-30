@@ -171,6 +171,80 @@ export interface ScheduleActivity {
   budgeted_cost: number | null;
 }
 
+export interface ScheduleFormat {
+  suffixes: string[];
+  name: string;
+  available: boolean;
+  /** Why an unavailable format cannot be read here — shown instead of a silent refusal. */
+  reason: string;
+}
+
+export type DcmaCheckStatus = "pass" | "fail" | "not_assessed";
+
+export interface DcmaCheck {
+  number: number;
+  name: string;
+  status: DcmaCheckStatus;
+  metric: number | null;
+  metric_label: string;
+  threshold_label: string;
+  offender_count: number;
+  population: number;
+  offenders: string[];
+  truncated: boolean;
+  note: string;
+  /** Checks 1, 7 and 9 by default: failure blocks simulation rather than warning. */
+  blocking: boolean;
+}
+
+export interface DcmaReportBody {
+  project_id: string;
+  project_name: string;
+  checks: DcmaCheck[];
+  thresholds: Record<string, unknown>;
+}
+
+export interface DcmaRun {
+  run_id: number;
+  version_id: number;
+  gate_passed: boolean;
+  blocking_failures: number[];
+  thresholds: Record<string, unknown>;
+  run_by: string;
+  created_at: string;
+  report: DcmaReportBody;
+}
+
+export interface GateSummary {
+  run_id: number;
+  gate_passed: boolean;
+  passed: number;
+  failed: number;
+  not_assessed: number;
+  blocking_failures: number[];
+}
+
+export interface ScheduleUploadResult {
+  version: ScheduleVersionSummary;
+  gate: GateSummary;
+  /** False when these exact bytes were already stored: the same export mailed round twice. */
+  file_created: boolean;
+}
+
+export interface AmbiguousProject {
+  id: string;
+  name: string;
+  activity_count: number;
+}
+
+/** A 409 from upload: the export holds several projects and one must be chosen. */
+export interface AmbiguousProjectChoice {
+  error: "ambiguous_project";
+  detail: string;
+  file_id: number;
+  projects: AmbiguousProject[];
+}
+
 export interface ActivityPage {
   total: number;
   limit: number;

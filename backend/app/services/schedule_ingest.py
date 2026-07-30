@@ -8,7 +8,7 @@ lets a parse be reproduced from the stored bytes alone.
 from __future__ import annotations
 
 import hashlib
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -200,12 +200,46 @@ async def create_version(
     return version
 
 
+def _naive(dt: datetime | None) -> datetime | None:
+    """Strip a timezone SQLAlchemy attached, so every date compares against every other.
+
+    Every schedule column is ``DateTime(timezone=True)``, so a genuine round trip through
+    asyncpg always comes back tz-aware. The parser never produces tz-aware datetimes —
+    P6 and MS Project dates are calendar-local wall-clock times with no real timezone
+    behind them — so "aware" here means nothing except "went through Postgres", not
+    anything about UTC or the project's actual clock.
+
+    That distinction becomes a live bug the moment two dates from different points on
+    that round trip meet in one comparison. During the very first gate run at upload
+    time, ``version`` is the same Python object ``create_version`` just built in this
+    session: reading ``version.data_date`` off it is a plain attribute access that never
+    touches the database, so it stays naive. The activities two lines below are loaded
+    through a fresh ``select()`` in the same call, which genuinely round-trips and comes
+    back aware. One naive, one aware, same function, same request — and DCMA check 9
+    (``activity.actual_start > data_date``) raises ``TypeError: can't compare
+    offset-naive and offset-aware datetimes`` on any schedule with real progress in it,
+    which is to say most of them. A later gate re-run in its own request loads ``version``
+    fresh and gets aware on both sides, so it never surfaces there — only ever on ingest.
+
+    Normalizing everything to naive here, unconditionally, means ``hydrate()`` returns the
+    same shape regardless of which side of that accident a given field landed on, and
+    matches what the parser itself produces — which is what the round-trip test two
+    lines above this docstring is actually promising.
+    """
+    if dt is not None and dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
 async def hydrate(db: AsyncSession, version: ScheduleVersion) -> Schedule:
     """Rebuild the canonical model from stored rows.
 
     Everything downstream — the gate, mapping, simulation — runs off this rather than
     re-reading the source file, so the round trip has to be lossless. There is a test that
     asserts exactly that.
+
+    Every datetime is normalized to naive on the way out — see ``_naive`` for why this is
+    not optional.
     """
     calendars = (
         await db.scalars(
@@ -244,9 +278,9 @@ async def hydrate(db: AsyncSession, version: ScheduleVersion) -> Schedule:
     return Schedule(
         project_id=version.source_project_id,
         project_name=version.project_name,
-        data_date=version.data_date,
-        baseline_finish=version.baseline_finish,
-        must_finish_by=version.must_finish_by,
+        data_date=_naive(version.data_date),
+        baseline_finish=_naive(version.baseline_finish),
+        must_finish_by=_naive(version.must_finish_by),
         source_format=version.source_format,
         calendars=tuple(
             WorkCalendar(
@@ -289,18 +323,18 @@ async def hydrate(db: AsyncSession, version: ScheduleVersion) -> Schedule:
                 ),
                 total_float=duration(row.total_float_days, row.duration_calendar_id),
                 free_float=duration(row.free_float_days, row.duration_calendar_id),
-                early_start=row.early_start,
-                early_finish=row.early_finish,
-                late_start=row.late_start,
-                late_finish=row.late_finish,
-                baseline_start=row.baseline_start,
-                baseline_finish=row.baseline_finish,
-                actual_start=row.actual_start,
-                actual_finish=row.actual_finish,
+                early_start=_naive(row.early_start),
+                early_finish=_naive(row.early_finish),
+                late_start=_naive(row.late_start),
+                late_finish=_naive(row.late_finish),
+                baseline_start=_naive(row.baseline_start),
+                baseline_finish=_naive(row.baseline_finish),
+                actual_start=_naive(row.actual_start),
+                actual_finish=_naive(row.actual_finish),
                 constraint_type=ConstraintType(row.constraint_type),
-                constraint_date=row.constraint_date,
+                constraint_date=_naive(row.constraint_date),
                 secondary_constraint_type=ConstraintType(row.secondary_constraint_type),
-                secondary_constraint_date=row.secondary_constraint_date,
+                secondary_constraint_date=_naive(row.secondary_constraint_date),
                 is_critical=row.is_critical,
                 has_resource_assignment=row.has_resource_assignment,
                 budgeted_cost=row.budgeted_cost,

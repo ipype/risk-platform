@@ -1,11 +1,13 @@
 import type {
   ActivityPage,
+  AmbiguousProjectChoice,
   BulkAcceptItem,
   BulkAcceptResult,
   CarryForwardResult,
   Category,
   CoverageReport,
   CustomFieldConfig,
+  DcmaRun,
   HistoryEntry,
   Mapping,
   MappingCreate,
@@ -17,6 +19,8 @@ import type {
   Risk,
   RiskCreate,
   RiskUpdate,
+  ScheduleFormat,
+  ScheduleUploadResult,
   ScheduleVersionSummary,
   SuggestionResponse,
   ValidateResult,
@@ -243,6 +247,59 @@ export function getScheduleVersions(
 ): Promise<ScheduleVersionSummary[]> {
   const q = currentOnly ? "?current_only=true" : "";
   return fetch(`${BASE}/schedules${q}`).then((r) => handle<ScheduleVersionSummary[]>(r));
+}
+
+/** Which formats exist and which this deployment can actually read. */
+export function getScheduleFormats(): Promise<ScheduleFormat[]> {
+  return fetch(`${BASE}/schedules/formats`).then((r) => handle<ScheduleFormat[]>(r));
+}
+
+/**
+ * An upload either parses or needs a project chosen, and both are ordinary outcomes.
+ * Modelling the second as a thrown error would force the caller to parse an exception
+ * to recover the file id it needs to finish the job.
+ */
+export type UploadOutcome =
+  | { kind: "parsed"; result: ScheduleUploadResult }
+  | { kind: "ambiguous"; choice: AmbiguousProjectChoice };
+
+export async function uploadSchedule(file: File, projectId?: string): Promise<UploadOutcome> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("actor", getActor());
+  if (projectId) body.append("project_id", projectId);
+
+  // No Content-Type header: the browser must set the multipart boundary itself, and
+  // setting it by hand produces a body the server cannot split.
+  const res = await fetch(`${BASE}/schedules/upload`, {
+    method: "POST",
+    headers: { "X-Actor": getActor() },
+    body,
+  });
+
+  if (res.status === 409) {
+    const payload = (await res.json()) as AmbiguousProjectChoice;
+    if (payload?.error === "ambiguous_project") return { kind: "ambiguous", choice: payload };
+    throw new Error(`409: ${payload?.detail ?? "conflict"}`);
+  }
+  return { kind: "parsed", result: await handle<ScheduleUploadResult>(res) };
+}
+
+/** Finish an ambiguous upload by id, rather than re-sending tens of megabytes. */
+export function parseStoredFile(
+  fileId: number,
+  projectId: string
+): Promise<ScheduleUploadResult> {
+  const qs = new URLSearchParams({ project_id: projectId, actor: getActor() });
+  return fetch(`${BASE}/schedules/files/${fileId}/parse?${qs}`, {
+    method: "POST",
+    headers: { "X-Actor": getActor() },
+  }).then((r) => handle<ScheduleUploadResult>(r));
+}
+
+/** The most recent gate run for a version, with the full 14-check report. */
+export function getDcma(versionId: number): Promise<DcmaRun> {
+  return fetch(`${BASE}/schedules/${versionId}/dcma`).then((r) => handle<DcmaRun>(r));
 }
 
 export function getScheduleActivities(

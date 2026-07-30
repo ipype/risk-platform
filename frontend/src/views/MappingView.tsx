@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ExposurePanel from "../components/mapping/ExposurePanel";
 import MappingRow from "../components/mapping/MappingRow";
 import SuggestionCard from "../components/mapping/SuggestionCard";
 import {
@@ -54,12 +55,15 @@ export default function MappingView() {
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<ScheduleActivity[]>([]);
 
+  const [exposureOpen, setExposureOpen] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const exposureTriggerRef = useRef<HTMLButtonElement>(null);
 
   const fail = useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -295,6 +299,39 @@ export default function MappingView() {
     [versionId, selectedRiskId, after, fail]
   );
 
+  /**
+   * Activity-first mapping: pick the exposed activity, then the risk that explains it.
+   * The workbench only walks risk-to-activity, which cannot answer "what is driving the
+   * path and who owns it" — the question a review actually opens with.
+   */
+  const attachRiskToActivity = useCallback(
+    async (activitySourceId: string, riskId: number): Promise<boolean> => {
+      if (versionId == null) return false;
+      setBusy(true);
+      setError(null);
+      try {
+        await createMapping({
+          risk_id: riskId,
+          version_id: versionId,
+          mapping_type: "duration_driver",
+          activity_source_id: activitySourceId,
+          origin: "manual",
+          accept: true,
+        });
+        await refreshVersionState(versionId);
+        if (selectedRiskId === riskId) await loadSuggestions(versionId, riskId);
+        setNotice("Mapping accepted.");
+        return true;
+      } catch (e) {
+        fail(e);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [versionId, selectedRiskId, refreshVersionState, loadSuggestions, fail]
+  );
+
   const patch = useCallback(
     async (id: number, body: Partial<Mapping>) => {
       setBusy(true);
@@ -372,6 +409,8 @@ export default function MappingView() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      // The exposure dialog owns the keyboard while it is open, including Escape.
+      if (exposureOpen) return;
       if (visibleCandidates.length === 0) return;
       const current = visibleCandidates[focusIndex];
       if (e.key === "j" || e.key === "ArrowDown") {
@@ -390,7 +429,7 @@ export default function MappingView() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visibleCandidates, focusIndex, busy, accept, dismiss]);
+  }, [visibleCandidates, focusIndex, busy, accept, dismiss, exposureOpen]);
 
   useEffect(() => {
     // Keep the keyboard cursor in view without yanking the page when it is already there.
@@ -410,7 +449,7 @@ export default function MappingView() {
             <strong>No schedule imported yet.</strong>
           </p>
           <p>
-            Upload a <code>.xer</code> export first — mappings are made against one parsed
+            Import a <code>.xer</code> export on the <b>Schedule</b> tab first — mappings are made against one parsed
             version, so there is nothing to map onto until then.
           </p>
         </div>
@@ -503,17 +542,26 @@ export default function MappingView() {
                 <span>{coverage.coverage_pct}%</span>
               </div>
             </div>
-            <div
+            <button
+              type="button"
               className={
-                coverage.critical_activities_uncovered > 0 ? "map-stat is-warn" : "map-stat"
+                coverage.critical_activities_uncovered > 0
+                  ? "map-stat map-stat-button is-warn"
+                  : "map-stat map-stat-button"
               }
-              title="Critical-path activities with no accepted mapping. A register can read as fully covered while the driving path has nothing pointing at it."
+              aria-haspopup="dialog"
+              ref={exposureTriggerRef}
+              onClick={() => {
+                setError(null);
+                setExposureOpen(true);
+              }}
+              title="Critical-path activities with no accepted mapping. A register can read as fully covered while the driving path has nothing pointing at it. Open to see which."
             >
               <b>
                 {coverage.critical_activities_uncovered}/{coverage.critical_activities}
               </b>
               <span>critical uncovered</span>
-            </div>
+            </button>
           </div>
         )}
       </div>
@@ -741,6 +789,25 @@ export default function MappingView() {
           </div>
         </section>
       </div>
+
+      {exposureOpen && coverage && (
+        <ExposurePanel
+          activities={coverage.critical_uncovered}
+          totalUncovered={coverage.critical_activities_uncovered}
+          criticalTotal={coverage.critical_activities}
+          activitiesCovered={coverage.activities_covered}
+          activitiesTotal={coverage.activities_total}
+          risks={risks}
+          scheduleArea={scheduleArea}
+          busy={busy}
+          error={error}
+          onAttach={attachRiskToActivity}
+          onClose={() => {
+            setExposureOpen(false);
+            exposureTriggerRef.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

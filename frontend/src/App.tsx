@@ -5,9 +5,17 @@ import MatrixSettings from "./views/MatrixSettings";
 import CustomFieldsView from "./views/CustomFieldsView";
 import ActivityView from "./views/ActivityView";
 import MappingView from "./views/MappingView";
+import ScheduleView from "./views/ScheduleView";
 import { getActor, setActor } from "./api";
 
-type View = "register" | "matrix" | "mapping" | "activity" | "fields" | "settings";
+type View =
+  | "register"
+  | "matrix"
+  | "schedule"
+  | "mapping"
+  | "activity"
+  | "fields"
+  | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("register");
@@ -26,6 +34,9 @@ export default function App() {
         </button>
         <button className={view === "matrix" ? "navlink active" : "navlink"} onClick={() => setView("matrix")}>
           Matrix
+        </button>
+        <button className={view === "schedule" ? "navlink active" : "navlink"} onClick={() => setView("schedule")}>
+          Schedule
         </button>
         <button className={view === "mapping" ? "navlink active" : "navlink"} onClick={() => setView("mapping")}>
           Schedule mapping
@@ -51,6 +62,7 @@ export default function App() {
       </nav>
       {view === "register" && <RegisterView />}
       {view === "matrix" && <MatrixView />}
+      {view === "schedule" && <ScheduleView />}
       {view === "mapping" && <MappingView />}
       {view === "activity" && <ActivityView />}
       {view === "fields" && <CustomFieldsView />}
