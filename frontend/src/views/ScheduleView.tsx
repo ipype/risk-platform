@@ -63,21 +63,48 @@ export default function ScheduleView() {
     setSelectedId((prev) => selectId ?? prev ?? v.find((x) => x.is_current)?.id ?? v[0]?.id ?? null);
   }, []);
 
+  // `allSettled` for the same reason as MappingView: a failed format list must not blank
+  // the version list and leave this screen claiming nothing has been imported.
   useEffect(() => {
     let live = true;
-    Promise.all([getScheduleFormats(), getScheduleVersions()])
-      .then(([f, v]) => {
+    Promise.allSettled([getScheduleFormats(), getScheduleVersions()])
+      .then(([formatsResult, versionsResult]) => {
         if (!live) return;
-        setFormats(f);
-        setVersions(v);
-        setSelectedId(v.find((x) => x.is_current)?.id ?? v[0]?.id ?? null);
+        const problems: string[] = [];
+
+        if (formatsResult.status === "fulfilled") {
+          setFormats(formatsResult.value);
+        } else {
+          problems.push(
+            `the readable format list (${
+              formatsResult.reason instanceof Error
+                ? formatsResult.reason.message
+                : String(formatsResult.reason)
+            })`
+          );
+        }
+
+        if (versionsResult.status === "fulfilled") {
+          const v = versionsResult.value;
+          setVersions(v);
+          setSelectedId(v.find((x) => x.is_current)?.id ?? v[0]?.id ?? null);
+        } else {
+          problems.push(
+            `the imported schedule list (${
+              versionsResult.reason instanceof Error
+                ? versionsResult.reason.message
+                : String(versionsResult.reason)
+            })`
+          );
+        }
+
+        if (problems.length > 0) setError(`Could not load ${problems.join("; ")}.`);
       })
-      .catch(fail)
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [fail]);
+  }, []);
 
   useEffect(() => {
     if (selectedId == null) {
@@ -265,8 +292,9 @@ export default function ScheduleView() {
         <p className="sch-empty">Loading…</p>
       ) : versions.length === 0 ? (
         <p className="sch-empty">
-          No schedule imported yet. Once one is in, risks can be mapped to activities and the
-          gate result will show here.
+          {error
+            ? "The imported schedule list could not be loaded — see the error above. This is a load failure, not necessarily an empty platform."
+            : "No schedule imported yet. Once one is in, risks can be mapped to activities and the gate result will show here."}
         </p>
       ) : (
         <div className="sch-body">

@@ -65,29 +65,68 @@ export default function MappingView() {
   const listRef = useRef<HTMLDivElement>(null);
   const exposureTriggerRef = useRef<HTMLButtonElement>(null);
 
+/**
+ * `GET /risks` declares `Query(default=100, ge=1, le=500)`. Asking for more is not a
+ * generous request that gets clamped — it is a 422 every single time.
+ */
+const RISK_FETCH_LIMIT = 500;
+
+function messageOf(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
   const fail = useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
   }, []);
 
   /* ------------------------------------------------------------------ load */
 
+  /**
+   * `allSettled`, not `all`. These three reads are independent, and under `Promise.all` a
+   * failure in any one of them rejected the whole batch: a 422 from `/risks` left
+   * `versions` empty, and the view then announced "No schedule imported yet" — false, and
+   * it points the reader at the wrong subsystem entirely. A view that cannot load its data
+   * has to say which part failed.
+   */
   useEffect(() => {
     let live = true;
-    Promise.all([getScheduleVersions(), getRisks({ limit: 1000 }), getScheduleImpactArea()])
-      .then(([v, r, area]) => {
+    Promise.allSettled([
+      getScheduleVersions(),
+      getRisks({ limit: RISK_FETCH_LIMIT }),
+      getScheduleImpactArea(),
+    ])
+      .then(([versionsResult, risksResult, areaResult]) => {
         if (!live) return;
-        setVersions(v);
-        setRisks(r);
-        setScheduleArea(area.schedule_impact_area);
-        // Default to the current parse; that is what the analyst almost always wants.
-        setVersionId(v.find((x) => x.is_current)?.id ?? v[0]?.id ?? null);
+        const problems: string[] = [];
+
+        if (versionsResult.status === "fulfilled") {
+          const v = versionsResult.value;
+          setVersions(v);
+          // Default to the current parse; that is what the analyst almost always wants.
+          setVersionId(v.find((x) => x.is_current)?.id ?? v[0]?.id ?? null);
+        } else {
+          problems.push(`the schedule list (${messageOf(versionsResult.reason)})`);
+        }
+
+        if (risksResult.status === "fulfilled") {
+          setRisks(risksResult.value);
+        } else {
+          problems.push(`the risk register (${messageOf(risksResult.reason)})`);
+        }
+
+        if (areaResult.status === "fulfilled") {
+          setScheduleArea(areaResult.value.schedule_impact_area);
+        } else {
+          problems.push(`the schedule impact area (${messageOf(areaResult.reason)})`);
+        }
+
+        if (problems.length > 0) setError(`Could not load ${problems.join("; ")}.`);
       })
-      .catch(fail)
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [fail]);
+  }, []);
 
   const refreshVersionState = useCallback(
     async (vid: number) => {
@@ -445,13 +484,29 @@ export default function MappingView() {
     return (
       <div className="map">
         <div className="map-empty">
-          <p>
-            <strong>No schedule imported yet.</strong>
-          </p>
-          <p>
-            Import a <code>.xer</code> export on the <b>Schedule</b> tab first — mappings are made against one parsed
-            version, so there is nothing to map onto until then.
-          </p>
+          {error ? (
+            <>
+              <p>
+                <strong>Could not load the schedule list.</strong>
+              </p>
+              <p className="map-error">{error}</p>
+              <p>
+                This is a load failure, not an empty platform — a schedule may well be
+                imported. Check the <b>Schedule</b> tab, and the API log for the failing
+                request.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                <strong>No schedule imported yet.</strong>
+              </p>
+              <p>
+                Import a <code>.xer</code> export on the <b>Schedule</b> tab first — mappings are made against one parsed
+                version, so there is nothing to map onto until then.
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -599,6 +654,13 @@ export default function MappingView() {
               <option value="all">All</option>
             </select>
           </div>
+          {risks.length >= RISK_FETCH_LIMIT && (
+            <p className="map-truncated">
+              Showing the first {RISK_FETCH_LIMIT} risks — the register endpoint will not
+              return more in one call. Any risk past that cannot be reached from this queue
+              yet, so the counts here may sit below the coverage figures above.
+            </p>
+          )}
           <div className="map-pane-body">
             {queue.length === 0 ? (
               <div className="map-empty">
