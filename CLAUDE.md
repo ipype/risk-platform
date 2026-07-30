@@ -45,7 +45,9 @@ the code.
 surfaced. 2) Write `claude/sessions/YYYY-MM-DD-<slug>.md`. 3) Route changes, newest state
 wins — `ACTIVE.md` drop shipped work, `BACKLOG.md` add deferred/blocked, `REFERENCE.md` add
 a dated decision plus any new invariant, `CLAUDE.md` only if a file or trigger changed.
-4) One `push_files` call for every doc change. 5) Recap in ≤ 5 lines.
+4) Deliver every changed doc as one zip for folder-swap, paths intact. Never pasted blocks
+  and never `push_files` — the connector is read-only and a doc close touches four or five
+  files at once. 5) Recap in ≤ 5 lines.
 
 **`continue`** — pick the next highest-value item and ship it. Do not ask which one.
 
@@ -60,10 +62,10 @@ a dated decision plus any new invariant, `CLAUDE.md` only if a file or trigger c
 | Simulation | NumPy + Numba, Latin Hypercube Sampling, Iman-Conover correlation |
 | LLM | Claude API — structured outputs + tool use for every elicitation agent |
 | Retrieval | BGE-M3 or Voyage embeddings, HNSW index, hybrid + reciprocal rank fusion |
-| Frontend | React 18, TypeScript, Vite, TanStack Query, Tailwind, commercial Gantt |
-| Charts | Recharts / visx (S-curve, tornado, JCL scatter) |
-| Test | pytest + hypothesis, Vitest, Playwright |
-| Tooling | uv, ruff, mypy, pnpm, eslint, prettier |
+| Frontend | React 18, TypeScript, Vite. **Installed deps are `react` + `react-dom` only** — plain CSS files per view, hand-rolled `fetch` in `api.ts`, hand-rolled Gantt. No TanStack Query, no Tailwind, no component library. Check `package.json` before importing anything. |
+| Charts | *Planned* — Recharts / visx for S-curve, tornado, JCL scatter (P4). Not installed. |
+| Test | pytest + pytest-asyncio + httpx (installed). *Planned*: hypothesis, Vitest, Playwright — **no frontend test runner exists yet**. |
+| Tooling | uv, ruff, npm (not pnpm — `package-lock.json` is what's in the tree). *Planned*: mypy, eslint, prettier. |
 
 ## Repo layout
 
@@ -114,7 +116,10 @@ make migration m="..."  # alembic revision --autogenerate
 
 ## Coding conventions
 
-- Python: ruff + ruff-format, line length 100. `mypy --strict` on `core/`, `sim/`, `parse/`.
+- Python: ruff. **There is no ruff config in the repo**, so `ruff format` uses its default
+  width of 88, and the tree is clean at neither 88 nor 100 — see `REFERENCE.md` gotchas
+  before running `make fmt`. When editing an existing file, match its hand-wrapped style.
+  `mypy --strict` on `core/` and the sim package is the intent; mypy is not installed yet.
 - No bare `except`. Domain errors subclass `core.errors.RiskPlatformError`.
 - Pydantic models at every boundary. No raw dicts crossing a module edge.
 - `sim/` is pure: no DB, no network, no logging side effects. Seed in, arrays out.
