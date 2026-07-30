@@ -20,12 +20,31 @@ import type {
   GanttWbsRow,
   ScheduleVersionSummary,
 } from "../types";
-import type { Zoom } from "../components/gantt/gantt-util";
+import type { LinkMode, Zoom } from "../components/gantt/gantt-util";
 import { ancestorsOf, fmtDate } from "../components/gantt/gantt-util";
 import "../gantt.css";
 
 /** Rows below this expand on load; above it, only the top level does. */
 const EXPAND_ALL_UNDER = 400;
+
+/**
+ * Dependency arrows default to on.
+ *
+ * The question this view exists to answer — is the parse right, is the critical path a
+ * chain or a scatter — is a question about the logic, and it cannot be asked with the
+ * logic hidden. Yes, a dense schedule draws spaghetti; P6 defaults the same way and
+ * planners read it. `Selected` is the way out when it stops being readable, and the
+ * render window already bounds the arrows to the rows actually on screen.
+ */
+const LINK_MODES: { key: LinkMode; label: string; title: string }[] = [
+  { key: "off", label: "Off", title: "Hide dependency arrows" },
+  {
+    key: "selected",
+    label: "Selected",
+    title: "Only the links touching the selected activity",
+  },
+  { key: "all", label: "All", title: "Every link between activities on screen" },
+];
 
 const ZOOMS: { key: Zoom; label: string; title: string }[] = [
   { key: "fit", label: "Fit", title: "Fit the whole schedule in view" },
@@ -53,6 +72,7 @@ export default function GanttView() {
 
   const [zoom, setZoom] = useState<Zoom>("fit");
   const [showBaseline, setShowBaseline] = useState(false);
+  const [linkMode, setLinkMode] = useState<LinkMode>("all");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
@@ -263,6 +283,21 @@ export default function GanttView() {
           Baseline
         </label>
 
+        <div className="gt-links-toggle" role="group" aria-label="Dependency arrows">
+          {LINK_MODES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              className={`gt-links-btn${linkMode === m.key ? " is-active" : ""}`}
+              onClick={() => setLinkMode(m.key)}
+              title={m.title}
+              aria-pressed={linkMode === m.key}
+            >
+              {m.key === "off" ? "Links off" : m.label}
+            </button>
+          ))}
+        </div>
+
         <div className="gt-zoom" role="group" aria-label="Timeline scale">
           {ZOOMS.map((z) => (
             <button
@@ -323,6 +358,14 @@ export default function GanttView() {
         </div>
       )}
 
+      {payload?.link_counts.truncated && linkMode !== "off" && (
+        <div className="gt-banner">
+          More dependencies than one response carries. The arrows shown are a subset — the
+          bar positions and the counts above are unaffected. Filter to a branch to see the
+          logic in full.
+        </div>
+      )}
+
       {landingsError && (
         <div className="gt-banner">
           <strong>Risk overlay unavailable</strong> — {landingsError}. The chart is complete;
@@ -362,11 +405,30 @@ export default function GanttView() {
               )}
             </>
           )}
+          {linkMode !== "off" && payload.link_counts.total > 0 && (
+            <span
+              title={
+                payload.link_counts.dangling > 0
+                  ? "A link is only drawn when both of its activities are on screen. " +
+                    "The rest reach a filtered, truncated, or out-of-project activity."
+                  : undefined
+              }
+            >
+              <strong>{payload.link_counts.drawable.toLocaleString()}</strong> links
+              {payload.link_counts.dangling > 0 &&
+                ` · ${payload.link_counts.dangling.toLocaleString()} outside this view`}
+            </span>
+          )}
           <span className="gt-legend">
             <i className="gt-key gt-key--critical" /> critical
             <i className="gt-key gt-key--done" /> complete
             <i className="gt-key gt-key--wip" /> in progress
             <i className="gt-key gt-key--risk" /> risks mapped
+            {linkMode !== "off" && (
+              <>
+                <i className="gt-key gt-key--link" /> dependency
+              </>
+            )}
           </span>
         </div>
       )}
@@ -398,6 +460,7 @@ export default function GanttView() {
               onSelect={setSelected}
               zoom={zoom}
               showBaseline={showBaseline}
+              linkMode={linkMode}
               jumpTo={jumpTo}
               onJumped={() => setJumpTo(null)}
             />

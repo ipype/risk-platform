@@ -3,6 +3,18 @@
 Builds a minimal app carrying only the schedules router against in-memory SQLite, so the
 suite needs no live Postgres and no Redis. Only the schedule tables are created, which
 keeps these tests independent of the rest of the app's metadata.
+
+The mapping tables are in that set even though no mapping route is mounted: deleting a
+schedule version has to remove the risk-to-activity mappings made against it and log
+their removal, so a delete test that never sees those tables would be testing a
+different code path from the one that ships.
+
+``app.db.base`` is imported for its side effect of registering *every* model on the shared
+metadata. ``RiskActivityMapping.risk_id`` is a foreign key onto ``risk``, and
+``create_all`` cannot emit the constraint unless the target table object exists — even
+though ``risk`` itself is deliberately not created here. Without the import this file
+passes or fails depending on whether some earlier test module happened to import the risk
+models first, which is not a property a harness should have.
 """
 
 from __future__ import annotations
@@ -17,6 +29,8 @@ from app.api.errors import register_exception_handlers
 from app.api.routes import schedules
 from app.db.base_class import Base
 from app.db.session import get_db
+from app.db import base as _all_models  # noqa: F401  (registers every table)
+from app.models import mapping as mapping_models
 from app.models import schedule as schedule_models
 
 SCHEDULE_TABLES = [
@@ -27,6 +41,8 @@ SCHEDULE_TABLES = [
     schedule_models.ScheduleActivity.__table__,
     schedule_models.ScheduleRelationship.__table__,
     schedule_models.DcmaRun.__table__,
+    mapping_models.RiskActivityMapping.__table__,
+    mapping_models.MappingHistory.__table__,
 ]
 
 

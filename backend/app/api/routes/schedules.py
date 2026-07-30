@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -27,6 +36,7 @@ from app.services.schedule_gantt import (
     GanttPayload,
     build_gantt,
 )
+from app.services.schedule_delete import delete_impact, delete_version
 from app.services.schedule_ingest import (
     MAX_UPLOAD_BYTES,
     create_version,
@@ -77,6 +87,45 @@ class UploadResult(BaseModel):
     file_created: bool = Field(
         description="False when these exact bytes had already been uploaded."
     )
+
+
+class DeleteImpactSummary(BaseModel):
+    """What deleting a version would remove. Read before the confirmation, not after."""
+
+    version_id: int
+    project_name: str
+    source_project_id: str
+    is_current: bool
+    activities: int
+    relationships: int
+    wbs_nodes: int
+    calendars: int
+    dcma_runs: int
+    mappings_total: int
+    mappings_accepted: int
+    mappings_proposed: int
+    #: Which version takes over as current. Null when this is the project's only one.
+    promotes_version_id: int | None
+    file_id: int
+    filename: str
+    file_size_bytes: int
+    file_versions_remaining: int
+    #: The stored bytes can go too once this version has.
+    file_removable: bool
+    #: Accepted mappings would be lost, so the delete needs ``force=true``.
+    needs_force: bool
+
+
+class DeleteResult(BaseModel):
+    version_id: int
+    project_name: str
+    #: Rows removed, per table. Counted from the delete itself, not inferred.
+    deleted: dict[str, int]
+    #: ``mapping_history`` rows written on the way out. History outlives the mapping.
+    mapping_history_kept: int
+    promoted_version_id: int | None
+    file_deleted: bool
+    file_retained: str | None
 
 
 class ThresholdOverride(BaseModel):
@@ -485,3 +534,83 @@ async def rerun_dcma(
         "thresholds": run.thresholds,
         "report": run.report,
     }
+
+
+# --------------------------------------------------------------------------- #
+# deleting
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/{version_id}/delete-impact")
+async def get_delete_impact(
+    version_id: int, db: AsyncSession = Depends(get_db)
+) -> DeleteImpactSummary:
+    """Everything a delete would remove, counted without removing any of it.
+
+    Separate from the ``DELETE`` on purpose. A confirmation that cannot name what it is
+    about to destroy is not a confirmation, and finding out from a 409 means the analyst
+    only learns the number after deciding.
+    """
+    version = await _get_version(db, version_id)
+    impact = await delete_impact(db, version)
+    return DeleteImpactSummary(
+        version_id=impact.version_id,
+        project_name=impact.project_name,
+        source_project_id=impact.source_project_id,
+        is_current=impact.is_current,
+        activities=impact.activities,
+        relationships=impact.relationships,
+        wbs_nodes=impact.wbs_nodes,
+        calendars=impact.calendars,
+        dcma_runs=impact.dcma_runs,
+        mappings_total=impact.mappings_total,
+        mappings_accepted=impact.mappings_accepted,
+        mappings_proposed=impact.mappings_proposed,
+        promotes_version_id=impact.promotes_version_id,
+        file_id=impact.file_id,
+        filename=impact.filename,
+        file_size_bytes=impact.file_size_bytes,
+        file_versions_remaining=impact.file_versions_remaining,
+        file_removable=impact.file_removable,
+        needs_force=impact.needs_force,
+    )
+
+
+@router.delete("/{version_id}")
+async def delete_schedule_version(
+    version_id: int,
+    force: bool = Query(
+        default=False,
+        description="Confirm that accepted risk-to-activity mappings may be deleted.",
+    ),
+    delete_file: bool = Query(
+        default=False,
+        description=(
+            "Also delete the stored source bytes, if no other version was parsed from "
+            "them. Ignored when another version still references the file."
+        ),
+    ),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
+    db: AsyncSession = Depends(get_db),
+) -> DeleteResult:
+    """Delete a parsed version and everything derived from it.
+
+    Returns 409 when accepted mappings would go with it and ``force`` is unset. The
+    derived rows — activities, relationships, WBS, calendars, gate runs — are all
+    reproducible from the stored file; the mappings are not, which is the only reason
+    this is guarded at all.
+    """
+    version = await _get_version(db, version_id)
+    outcome = await delete_version(
+        db, version, actor=actor, force=force, delete_file=delete_file
+    )
+    await db.commit()
+    return DeleteResult(
+        version_id=outcome.version_id,
+        project_name=outcome.project_name,
+        deleted=outcome.deleted,
+        mapping_history_kept=outcome.mapping_history_kept,
+        promoted_version_id=outcome.promoted_version_id,
+        file_deleted=outcome.file_deleted,
+        file_retained=outcome.file_retained,
+    )

@@ -60,6 +60,26 @@ class AmbiguousProjectError(ScheduleError):
         )
 
 
+class ScheduleDeleteBlocked(ScheduleError):
+    """Deleting this version would destroy accepted analyst work.
+
+    Raised rather than silently cascading. A ``proposed`` mapping is a suggestion nobody
+    has ruled on and costs nothing to lose; an ``accepted`` one is a decision an analyst
+    made about where a risk lands on the network, and it is not recoverable from the
+    source file. The caller re-sends with ``force=true`` once it has said so on screen.
+    """
+
+    def __init__(self, version_id: int, accepted: int, proposed: int) -> None:
+        self.version_id = version_id
+        self.accepted = accepted
+        self.proposed = proposed
+        super().__init__(
+            f"Schedule version {version_id} carries {accepted} accepted risk-to-activity "
+            f"mapping(s) ({proposed} proposed). Deleting it removes them. Re-send with "
+            "force=true to confirm."
+        )
+
+
 class ProjectNotFound(ScheduleError):
     """The requested project id is not present in the file."""
 

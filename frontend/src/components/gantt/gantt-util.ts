@@ -9,11 +9,25 @@
  */
 
 import { NO_WBS_KEY } from "../../types";
-import type { GanttBar, GanttPayload, GanttWbsRow } from "../../types";
+import type { GanttBar, GanttLink, GanttPayload, GanttWbsRow } from "../../types";
 
 export const DAY_MS = 86_400_000;
 export const ROW_H = 26;
 export const HEADER_H = 46;
+
+/** Narrowest bar drawn. A zero-length task must still be clickable and linkable. */
+export const MIN_BAR_PX = 3;
+
+/**
+ * Vertical centre of a bar within its row, measured from the row top.
+ *
+ * Derived from `.gt-bar { top: 6px; height: 13px }` in `gantt.css`. Arrows anchor here,
+ * so if that rule moves this constant moves with it or every link floats off its bar.
+ */
+export const BAR_MID = 12.5;
+
+/** Half-width of the milestone diamond: `.gt-milestone` is 11px wide, offset by -5px. */
+export const MILESTONE_HALF = 5.5;
 
 export type Zoom = "day" | "week" | "month" | "fit";
 
@@ -271,3 +285,175 @@ export const BASIS_NOTE: Record<string, string> = {
   planned: "Early dates from the last CPM run. Not started.",
   undated: "No usable dates in the export. Nothing to draw.",
 };
+
+/* ------------------------------------------------------------------------- *
+ * dependency links
+ * ------------------------------------------------------------------------- */
+
+/** How many links to draw. `selected` is the escape hatch for a dense network. */
+export type LinkMode = "off" | "selected" | "all";
+
+/** Horizontal stub off a bar edge before the arrow turns. */
+const STUB = 9;
+/** Length of the arrowhead along its direction of travel. */
+const HEAD = 5;
+const HEAD_HALF = 3.5;
+
+/** Which edge of each bar a relationship type joins. */
+function sidesFor(type: string): { from: "start" | "finish"; to: "start" | "finish" } {
+  switch (type.toUpperCase()) {
+    case "SS":
+      return { from: "start", to: "start" };
+    case "FF":
+      return { from: "finish", to: "finish" };
+    case "SF":
+      return { from: "start", to: "finish" };
+    default:
+      return { from: "finish", to: "start" }; // FS, and anything unrecognised
+  }
+}
+
+export interface BarEdges {
+  left: number;
+  right: number;
+}
+
+/**
+ * Where a bar's two ends sit in track pixels, or null when there is nothing to join.
+ *
+ * An undated activity is deliberately not linkable: it has no position, and parking its
+ * arrows at the left edge would draw logic the schedule does not contain.
+ */
+export function barEdges(bar: GanttBar, x: (ms: number) => number): BarEdges | null {
+  const start = parseDate(bar.start);
+  const finish = parseDate(bar.finish);
+  if (bar.basis === "undated" || start === null || finish === null) return null;
+  const left = x(start);
+  if (bar.is_milestone) {
+    return { left: left - MILESTONE_HALF, right: left + MILESTONE_HALF };
+  }
+  return { left, right: left + Math.max(MIN_BAR_PX, x(finish) - left) };
+}
+
+/**
+ * An orthogonal route from one bar edge to another.
+ *
+ * Three segments when the successor sits far enough along the direction of approach, and
+ * five when it does not — a successor that starts before its predecessor finishes needs
+ * the arrow to double back, and doing that at the row centre would run it through both
+ * bars. The detour uses the gap between rows, which is empty by construction.
+ */
+export function linkPath(
+  x1: number,
+  y1: number,
+  exitDir: 1 | -1,
+  x2: number,
+  y2: number,
+  entryDir: 1 | -1,
+  rowH: number
+): string {
+  const out = x1 + exitDir * STUB;
+  const into = x2 - entryDir * STUB;
+  if ((into - out) * entryDir >= 0) {
+    return `M${x1},${y1}L${out},${y1}L${out},${y2}L${x2},${y2}`;
+  }
+  const midY = y1 + (y2 >= y1 ? rowH / 2 : -rowH / 2);
+  return (
+    `M${x1},${y1}L${out},${y1}L${out},${midY}` +
+    `L${into},${midY}L${into},${y2}L${x2},${y2}`
+  );
+}
+
+function headPoints(x: number, y: number, dir: 1 | -1): string {
+  const back = x - dir * HEAD;
+  return `${x},${y} ${back},${y - HEAD_HALF} ${back},${y + HEAD_HALF}`;
+}
+
+export interface DrawnLink {
+  key: string;
+  path: string;
+  head: string;
+  critical: boolean;
+  /** Touches the selected activity. Drawn bolder; everything else dims around it. */
+  active: boolean;
+  label: string;
+}
+
+export interface LinkGeometryInput {
+  links: GanttLink[];
+  /** `source_id -> row index`, covering only rows currently in the flattened list. */
+  rowIndex: Map<string, number>;
+  bars: Map<string, GanttBar>;
+  x: (ms: number) => number;
+  /** Inclusive first and exclusive last row index of the rendered window. */
+  first: number;
+  last: number;
+  selected: string | null;
+  mode: LinkMode;
+  rowH: number;
+}
+
+function lagLabel(link: GanttLink): string {
+  if (link.lag_days === null || link.lag_days === 0) return link.type;
+  const sign = link.lag_days > 0 ? "+" : "";
+  return `${link.type}${sign}${link.lag_days}d`;
+}
+
+/**
+ * Arrow geometry for the rows currently on screen.
+ *
+ * Bounded by the render window rather than by the payload: a link is built only when at
+ * least one of its endpoints is inside the window, which keeps the work proportional to
+ * what is visible instead of to a 5,000-row schedule. A link spanning the window from
+ * above to below still qualifies — those are exactly the ones worth seeing.
+ *
+ * Endpoints inside a collapsed branch are absent from `rowIndex` and their links are
+ * skipped. That is a gap the analyst created and can undo, unlike a server-side filter,
+ * so it is not reported separately.
+ */
+export function buildLinkGeometry(input: LinkGeometryInput): DrawnLink[] {
+  const { links, rowIndex, bars, x, first, last, selected, mode, rowH } = input;
+  if (mode === "off") return [];
+  if (mode === "selected" && !selected) return [];
+
+  const out: DrawnLink[] = [];
+
+  for (const link of links) {
+    const touchesSelected =
+      selected !== null &&
+      (link.predecessor_source_id === selected || link.successor_source_id === selected);
+    if (mode === "selected" && !touchesSelected) continue;
+
+    const pi = rowIndex.get(link.predecessor_source_id);
+    const si = rowIndex.get(link.successor_source_id);
+    if (pi === undefined || si === undefined) continue;
+    if (Math.max(pi, si) < first || Math.min(pi, si) >= last) continue;
+
+    const predBar = bars.get(link.predecessor_source_id);
+    const succBar = bars.get(link.successor_source_id);
+    if (!predBar || !succBar) continue;
+
+    const predEdges = barEdges(predBar, x);
+    const succEdges = barEdges(succBar, x);
+    if (!predEdges || !succEdges) continue;
+
+    const sides = sidesFor(link.type);
+    const x1 = sides.from === "finish" ? predEdges.right : predEdges.left;
+    const x2 = sides.to === "finish" ? succEdges.right : succEdges.left;
+    const exitDir: 1 | -1 = sides.from === "finish" ? 1 : -1;
+    const entryDir: 1 | -1 = sides.to === "start" ? 1 : -1;
+    const y1 = pi * rowH + BAR_MID;
+    const y2 = si * rowH + BAR_MID;
+
+    out.push({
+      key: link.source_id,
+      path: linkPath(x1, y1, exitDir, x2, y2, entryDir, rowH),
+      head: headPoints(x2, y2, entryDir),
+      critical: link.is_critical,
+      active: touchesSelected,
+      label: `${predBar.code} → ${succBar.code} (${lagLabel(link)})`,
+    });
+  }
+
+  return out;
+}

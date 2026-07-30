@@ -796,3 +796,108 @@
     max-width: 100%;
   }
 }
+
+/* -- dependency links ----------------------------------------------------- */
+
+/*
+ * Inside `.gt-rows`, not a sibling of it. `.gt-rows` carries `z-index: 2` and therefore
+ * opens a stacking context; an overlay above it from the outside would also cover the
+ * sticky label column, which slides across the track on horizontal scroll. In here, 2
+ * puts the arrows over the bars and under `.gt-label` at 3.
+ */
+.gt-links {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.gt-link path {
+  fill: none;
+  stroke: #7b848e;
+  stroke-width: 1.25;
+}
+
+.gt-link polygon {
+  fill: #7b848e;
+}
+
+.gt-link.is-critical path {
+  stroke: var(--danger);
+}
+
+.gt-link.is-critical polygon {
+  fill: var(--danger);
+}
+
+/*
+ * With a row selected, its own logic is the question being asked. Everything else stays
+ * on screen — the shape of the network is the other half of the answer — but drops back
+ * far enough that the chain in question reads first.
+ */
+.gt-links.has-focus .gt-link {
+  opacity: 0.28;
+}
+
+.gt-links.has-focus .gt-link.is-active {
+  opacity: 1;
+}
+
+.gt-link.is-active path {
+  stroke: #1e2125;
+  stroke-width: 2;
+}
+
+.gt-link.is-active polygon {
+  fill: #1e2125;
+}
+
+.gt-link.is-active.is-critical path {
+  stroke: var(--danger);
+}
+
+.gt-link.is-active.is-critical polygon {
+  fill: var(--danger);
+}
+
+.gt-links-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gt-links-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 9px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.gt-links-btn:first-child {
+  border-left: 0;
+}
+
+.gt-links-btn.is-active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.gt-key--link {
+  width: 14px;
+  height: 2px;
+  margin-bottom: 3px;
+  border-radius: 0;
+  background: #7b848e;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .gt-link {
+    transition: opacity 120ms ease;
+  }
+}

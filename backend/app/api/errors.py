@@ -17,6 +17,7 @@ from app.core.errors import (
     ParserUnavailable,
     ProjectNotFound,
     RiskPlatformError,
+    ScheduleDeleteBlocked,
     UnsupportedScheduleFormat,
 )
 
@@ -45,6 +46,23 @@ async def _project_not_found(request: Request, exc: ProjectNotFound) -> JSONResp
     return JSONResponse(
         status_code=404,
         content=_payload("project_not_found", str(exc), available=exc.available),
+    )
+
+
+async def _delete_blocked(
+    request: Request, exc: ScheduleDeleteBlocked
+) -> JSONResponse:
+    # 409, not 403: the request is well formed and the caller is allowed to do it. It
+    # needs a confirmation that names what would be lost, which the counts below supply.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "delete_blocked",
+            str(exc),
+            version_id=exc.version_id,
+            accepted_mappings=exc.accepted,
+            proposed_mappings=exc.proposed,
+        ),
     )
 
 
@@ -77,6 +95,7 @@ async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONRespons
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AmbiguousProjectError, _ambiguous_project)  # type: ignore[arg-type]
     app.add_exception_handler(ProjectNotFound, _project_not_found)  # type: ignore[arg-type]
+    app.add_exception_handler(ScheduleDeleteBlocked, _delete_blocked)  # type: ignore[arg-type]
     app.add_exception_handler(UnsupportedScheduleFormat, _unsupported_format)  # type: ignore[arg-type]
     app.add_exception_handler(ParserUnavailable, _parser_unavailable)  # type: ignore[arg-type]
     app.add_exception_handler(MalformedScheduleFile, _malformed)  # type: ignore[arg-type]

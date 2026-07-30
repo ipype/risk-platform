@@ -9,15 +9,30 @@
  *
  * One tab stop per row, roving. Arrow keys move the selection; 5,000 focusable rows would
  * make Tab useless for reaching anything after the chart.
+ *
+ * Dependency arrows are one SVG overlay *inside* `.gt-rows`, not a sibling of it.
+ * `.gt-rows` sets `z-index: 2` and so opens a stacking context: a sibling above it would
+ * also paint over the sticky label column, which slides across the track on horizontal
+ * scroll. Inside that context the overlay sits at `z-index: 2` — above the bars, below
+ * the labels at 3 — and takes `pointer-events: none` so a click still reaches the bar
+ * underneath.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ActivityLanding, GanttBar, GanttPayload } from "../../types";
-import type { Row, Zoom } from "./gantt-util";
-import { HEADER_H, ROW_H, buildRows, buildScale, fmtDate, parseDate } from "./gantt-util";
+import type { LinkMode, Row, Zoom } from "./gantt-util";
+import {
+  HEADER_H,
+  MIN_BAR_PX,
+  ROW_H,
+  buildLinkGeometry,
+  buildRows,
+  buildScale,
+  fmtDate,
+  parseDate,
+} from "./gantt-util";
 
 const OVERSCAN = 8;
-const MIN_BAR_PX = 3;
 
 interface Props {
   payload: GanttPayload;
@@ -28,6 +43,8 @@ interface Props {
   onSelect: (sourceId: string) => void;
   zoom: Zoom;
   showBaseline: boolean;
+  /** How much of the dependency network to draw. */
+  linkMode: LinkMode;
   /** Set by the view to pull a specific activity into sight; cleared via `onJumped`. */
   jumpTo: string | null;
   onJumped: () => void;
@@ -77,6 +94,7 @@ export default function GanttChart({
   onSelect,
   zoom,
   showBaseline,
+  linkMode,
   jumpTo,
   onJumped,
 }: Props) {
@@ -97,6 +115,21 @@ export default function GanttChart({
   }, []);
 
   const rows = useMemo(() => buildRows(payload, collapsed), [payload, collapsed]);
+
+  // Only rows that survived the collapse are in here, which is what makes an endpoint
+  // inside a folded branch simply drop out of the geometry rather than draw to nowhere.
+  const rowIndex = useMemo(() => {
+    const index = new Map<string, number>();
+    rows.forEach((row, i) => {
+      if (row.kind === "bar") index.set(row.bar.source_id, i);
+    });
+    return index;
+  }, [rows]);
+
+  const barsById = useMemo(
+    () => new Map(payload.activities.map((bar) => [bar.source_id, bar])),
+    [payload.activities]
+  );
 
   // Narrow screens get a narrower label column rather than a chart with no timeline in
   // view. Held in JS because the guide overlay needs the same number.
@@ -125,6 +158,24 @@ export default function GanttChart({
     Math.ceil((scrollTop + viewport.h) / ROW_H) + OVERSCAN
   );
   const visible = rows.slice(first, last);
+
+  const drawnLinks = useMemo(
+    () =>
+      scale
+        ? buildLinkGeometry({
+            links: payload.links,
+            rowIndex,
+            bars: barsById,
+            x: scale.x,
+            first,
+            last,
+            selected,
+            mode: linkMode,
+            rowH: ROW_H,
+          })
+        : [],
+    [payload.links, rowIndex, barsById, scale, first, last, selected, linkMode]
+  );
 
   const indexOf = useCallback(
     (sourceId: string | null) =>
@@ -415,6 +466,33 @@ export default function GanttChart({
             );
           })}
           <div style={{ height: Math.max(0, (rows.length - last) * ROW_H) }} />
+
+          {drawnLinks.length > 0 && (
+            // aria-hidden: the same logic is listed as text in the detail panel's
+            // predecessor and successor lists, so nothing is lost, and an <svg> inside a
+            // rowgroup would otherwise be a structure error for a screen reader.
+            <svg
+              className={`gt-links${selected ? " has-focus" : ""}`}
+              style={{ left: labelW, width: scale.width, height: totalHeight }}
+              width={scale.width}
+              height={totalHeight}
+              aria-hidden="true"
+              focusable="false"
+            >
+              {drawnLinks.map((link) => (
+                <g
+                  key={link.key}
+                  className={`gt-link${link.critical ? " is-critical" : ""}${
+                    link.active ? " is-active" : ""
+                  }`}
+                >
+                  <title>{link.label}</title>
+                  <path d={link.path} />
+                  <polygon points={link.head} />
+                </g>
+              ))}
+            </svg>
+          )}
         </div>
       </div>
     </div>

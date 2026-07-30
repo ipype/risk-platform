@@ -565,6 +565,35 @@ export interface GanttCounts {
   in_progress: number;
 }
 
+/**
+ * One dependency, thinned to what an arrow needs.
+ *
+ * Only links whose *both* endpoints are in `activities` are sent. A link with one end
+ * filtered out, truncated away, or pointing into another project has nowhere to
+ * terminate, and an arrow into empty space reads as a schedule error rather than a
+ * display limit — `GanttLinkCounts.dangling` says how many were left out.
+ */
+export interface GanttLink {
+  source_id: string;
+  predecessor_source_id: string;
+  successor_source_id: string;
+  /** `FS` / `SS` / `FF` / `SF`. Decides which edge of each bar the arrow joins. */
+  type: string;
+  lag_days: number | null;
+  /** Both ends critical. Not a claim the link is driving — that needs a forward pass. */
+  is_critical: boolean;
+}
+
+export interface GanttLinkCounts {
+  /** Relationships stored against this version. */
+  total: number;
+  /** Both endpoints present in the returned bars, so drawable. */
+  drawable: number;
+  /** At least one endpoint outside the returned bars. */
+  dangling: number;
+  truncated: boolean;
+}
+
 export interface GanttPayload {
   version: GanttVersion;
   window: GanttWindow;
@@ -573,6 +602,9 @@ export interface GanttPayload {
   wbs: GanttWbsRow[];
   /** Display order: WBS depth-first, then start date within a node. Kept as sent. */
   activities: GanttBar[];
+  /** Dependencies between the activities above, in stored order. */
+  links: GanttLink[];
+  link_counts: GanttLinkCounts;
   returned: number;
   /** Matching the filter before the limit was applied. */
   total: number;
@@ -622,6 +654,48 @@ export interface ScheduleRelationship {
   type: string;
   lag_days: number | null;
   lag_calendar_id: string | null;
+}
+
+/**
+ * What deleting a schedule version would cost, counted before anything is removed.
+ *
+ * Fetched for the confirmation rather than inferred from a 409: a dialog that cannot name
+ * what it is about to destroy asks the analyst to accept a risk nobody has quantified.
+ */
+export interface ScheduleDeleteImpact {
+  version_id: number;
+  project_name: string;
+  source_project_id: string;
+  is_current: boolean;
+  activities: number;
+  relationships: number;
+  wbs_nodes: number;
+  calendars: number;
+  dcma_runs: number;
+  mappings_total: number;
+  mappings_accepted: number;
+  mappings_proposed: number;
+  /** Which version takes over as current. Null when this is the project's only one. */
+  promotes_version_id: number | null;
+  file_id: number;
+  filename: string;
+  file_size_bytes: number;
+  file_versions_remaining: number;
+  file_removable: boolean;
+  /** Accepted mappings would be lost, so the delete needs `force`. */
+  needs_force: boolean;
+}
+
+export interface ScheduleDeleteResult {
+  version_id: number;
+  project_name: string;
+  /** Rows removed, per table. Counted from the delete, not inferred. */
+  deleted: Record<string, number>;
+  /** `mapping_history` rows written on the way out. History outlives the mapping. */
+  mapping_history_kept: number;
+  promoted_version_id: number | null;
+  file_deleted: boolean;
+  file_retained: string | null;
 }
 
 export interface RelationshipPage {

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DcmaReportPanel from "../components/schedule/DcmaReportPanel";
+import DeleteVersionDialog from "../components/schedule/DeleteVersionDialog";
 import {
+  deleteScheduleVersion,
   getDcma,
+  getScheduleDeleteImpact,
   getScheduleFormats,
   getScheduleVersions,
   parseStoredFile,
@@ -10,6 +13,7 @@ import {
 import type {
   AmbiguousProjectChoice,
   DcmaRun,
+  ScheduleDeleteImpact,
   ScheduleFormat,
   ScheduleUploadResult,
   ScheduleVersionSummary,
@@ -34,6 +38,10 @@ export default function ScheduleView() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [dcma, setDcma] = useState<DcmaRun | null>(null);
   const [dcmaMissing, setDcmaMissing] = useState(false);
+
+  const [pendingDelete, setPendingDelete] = useState<ScheduleDeleteImpact | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [choice, setChoice] = useState<AmbiguousProjectChoice | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -208,6 +216,86 @@ export default function ScheduleView() {
     [choice, settle, fail]
   );
 
+  const askDelete = useCallback(
+    async (versionId: number) => {
+      setError(null);
+      setNotice(null);
+      setDeleteError(null);
+      try {
+        setPendingDelete(await getScheduleDeleteImpact(versionId));
+      } catch (e) {
+        // No dialog rather than a dialog with blanks in it: without the counts there is
+        // nothing to confirm against, and guessing them would be worse than refusing.
+        fail(e);
+      }
+    },
+    [fail]
+  );
+
+  const confirmDelete = useCallback(
+    async (opts: { force: boolean; deleteFile: boolean }) => {
+      if (!pendingDelete) return;
+      setDeleting(true);
+      setDeleteError(null);
+      try {
+        const result = await deleteScheduleVersion(pendingDelete.version_id, opts);
+        setPendingDelete(null);
+
+        const removed = Object.entries(result.deleted)
+          .filter(([, n]) => n > 0)
+          .map(([table, n]) => `${n.toLocaleString()} ${table.replace(/_/g, " ")}`)
+          .join(", ");
+
+        setNotice(
+          `Deleted version #${result.version_id} of ${result.project_name}` +
+            (removed ? ` — ${removed}.` : ".") +
+            (result.mapping_history_kept > 0
+              ? ` ${result.mapping_history_kept} mapping history record${
+                  result.mapping_history_kept === 1 ? "" : "s"
+                } kept.`
+              : "") +
+            (result.promoted_version_id !== null
+              ? ` Version #${result.promoted_version_id} is now current.`
+              : "") +
+            (result.file_deleted
+              ? " The stored file was removed."
+              : result.file_retained
+                ? ` ${result.file_retained}`
+                : "")
+        );
+
+        const rows = await getScheduleVersions();
+        setVersions(rows);
+        setSelectedId((prev) => {
+          if (prev !== null && prev !== result.version_id) return prev;
+          return (
+            result.promoted_version_id ??
+            rows.find((v) => v.is_current)?.id ??
+            rows[0]?.id ??
+            null
+          );
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setDeleteError(message);
+        // A 409 means accepted mappings are in the way. The counts this dialog opened
+        // with can be stale — someone else may have accepted one in the meantime — and
+        // without a re-read the acknowledgement checkbox never appears, leaving the
+        // analyst reading a refusal they have no way to answer.
+        if (message.startsWith("409")) {
+          try {
+            setPendingDelete(await getScheduleDeleteImpact(pendingDelete.version_id));
+          } catch {
+            // Leave the original 409 on screen; a second failure here says nothing new.
+          }
+        }
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [pendingDelete]
+  );
+
   const selected = versions.find((v) => v.id === selectedId) ?? null;
 
   return (
@@ -303,21 +391,39 @@ export default function ScheduleView() {
             <ul>
               {versions.map((v) => (
                 <li key={v.id}>
-                  <button
-                    type="button"
-                    className={v.id === selectedId ? "sch-version is-selected" : "sch-version"}
-                    aria-current={v.id === selectedId}
-                    onClick={() => setSelectedId(v.id)}
+                  <div
+                    className={
+                      v.id === selectedId ? "sch-version-row is-selected" : "sch-version-row"
+                    }
                   >
-                    <span className="sch-version-name">
-                      {v.project_name || v.source_project_id}
-                      {v.is_current && <em className="sch-badge-current">current</em>}
-                    </span>
-                    <span className="sch-version-meta">
-                      {v.source_format} · {v.activity_count} activities ·{" "}
-                      {new Date(v.created_at).toLocaleDateString()}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="sch-version"
+                      aria-current={v.id === selectedId}
+                      onClick={() => setSelectedId(v.id)}
+                    >
+                      <span className="sch-version-name">
+                        {v.project_name || v.source_project_id}
+                        {v.is_current && <em className="sch-badge-current">current</em>}
+                      </span>
+                      <span className="sch-version-meta">
+                        {v.source_format} · {v.activity_count} activities ·{" "}
+                        {new Date(v.created_at).toLocaleDateString()}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="sch-version-delete"
+                      onClick={() => void askDelete(v.id)}
+                      disabled={uploading || deleting}
+                      title={`Delete version #${v.id}`}
+                      aria-label={`Delete version ${v.id} of ${
+                        v.project_name || v.source_project_id
+                      }`}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -377,6 +483,19 @@ export default function ScheduleView() {
             )}
           </div>
         </div>
+      )}
+
+      {pendingDelete && (
+        <DeleteVersionDialog
+          impact={pendingDelete}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }}
+          onConfirm={(opts) => void confirmDelete(opts)}
+        />
       )}
     </div>
   );

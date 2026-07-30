@@ -19,6 +19,8 @@ import type {
   Risk,
   RiskCreate,
   RiskUpdate,
+  ScheduleDeleteImpact,
+  ScheduleDeleteResult,
   ActivityLandings,
   GanttPayload,
   RelationshipPage,
@@ -356,6 +358,48 @@ export function getActivityLandings(versionId: number): Promise<ActivityLandings
   return fetch(`${BASE}/mappings/activity-landings?version_id=${versionId}`).then((r) =>
     handle<ActivityLandings>(r)
   );
+}
+
+/**
+ * What a delete would remove, counted server-side without removing any of it.
+ *
+ * Always fetched before the confirmation opens. The numbers are the whole point of the
+ * dialog; without them it is a yes/no on an unknown quantity.
+ */
+export function getScheduleDeleteImpact(
+  versionId: number
+): Promise<ScheduleDeleteImpact> {
+  return fetch(`${BASE}/schedules/${versionId}/delete-impact`).then((r) =>
+    handle<ScheduleDeleteImpact>(r)
+  );
+}
+
+export interface DeleteScheduleOptions {
+  /** Confirm that accepted risk-to-activity mappings may go too. */
+  force?: boolean;
+  /** Also remove the stored source bytes, if no other version was parsed from them. */
+  deleteFile?: boolean;
+}
+
+/**
+ * Delete a parsed version and everything derived from it.
+ *
+ * A 409 here is not a failure to report and forget: it means accepted mappings would be
+ * lost and the caller has to say so explicitly. `ScheduleView` reopens the confirmation
+ * with the acknowledgement rather than swallowing it into the error banner.
+ */
+export function deleteScheduleVersion(
+  versionId: number,
+  opts: DeleteScheduleOptions = {}
+): Promise<ScheduleDeleteResult> {
+  const qs = new URLSearchParams();
+  if (opts.force) qs.set("force", "true");
+  if (opts.deleteFile) qs.set("delete_file", "true");
+  const q = qs.toString();
+  return fetch(`${BASE}/schedules/${versionId}${q ? `?${q}` : ""}`, {
+    method: "DELETE",
+    headers: { "X-Actor": getActor() },
+  }).then((r) => handle<ScheduleDeleteResult>(r));
 }
 
 /** The links on either side of one activity — why its bar sits where it does. */

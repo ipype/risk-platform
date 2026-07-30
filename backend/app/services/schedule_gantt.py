@@ -38,6 +38,11 @@ from app.services.schedule_ingest import hydrate, latest_gate
 MAX_GANTT_ROWS = 5000
 DEFAULT_GANTT_ROWS = 2000
 
+#: Hard ceiling on dependency links in one response. Links are only useful where both
+#: ends are drawn, so this sits above the realistic link-to-activity ratio at the row cap
+#: rather than being a second filter the analyst has to reason about.
+MAX_GANTT_LINKS = 10000
+
 #: Bucket for activities whose WBS reference is missing or dangling. Shown last rather
 #: than dropped: a dangling WBS id is a parse problem the analyst needs to see.
 NO_WBS_KEY = "__no_wbs__"
@@ -93,6 +98,45 @@ class GanttBar(BaseModel):
     has_hard_constraint: bool
     constraint_type: str
     budgeted_cost: int | None
+
+
+class GanttLink(BaseModel):
+    """One dependency, in the form the chart needs to draw an arrow.
+
+    Only links whose *both* endpoints are in the returned bar list are sent. A link with
+    one end filtered out, truncated away, or pointing at another project has nowhere to
+    terminate, and an arrow into empty space reads as a schedule error rather than a
+    display limit — the count in :class:`GanttLinkCounts` says how many were left out.
+
+    Deliberately thinner than ``GET /schedules/{id}/relationships``: no lag calendar id,
+    because the detail panel already fetches the full row for one activity and this list
+    is sent for the whole visible schedule.
+    """
+
+    source_id: str
+    predecessor_source_id: str
+    successor_source_id: str
+    #: ``FS`` / ``SS`` / ``FF`` / ``SF``. Decides which edge of each bar the arrow joins.
+    type: str
+    lag_days: float | None
+    #: Both endpoints are critical. Not a claim that this link *is* driving — that needs
+    #: a forward pass this platform does not run until P3 — but the chain the analyst is
+    #: looking for is inside this subset.
+    is_critical: bool
+
+
+class GanttLinkCounts(BaseModel):
+    """Totals for the links, so the chart can say what it is not showing."""
+
+    #: Relationships stored against this version.
+    total: int
+    #: Both endpoints present in the returned bars, so drawable.
+    drawable: int
+    #: At least one endpoint outside the returned bars — filtered out, truncated away, or
+    #: never in this project to begin with.
+    dangling: int
+    #: True when ``drawable`` exceeded ``MAX_GANTT_LINKS`` and the list was cut.
+    truncated: bool
 
 
 class GanttWbsRow(BaseModel):
@@ -173,6 +217,13 @@ class GanttPayload(BaseModel):
     #: In display order: WBS depth-first, then by start date within a node. The client
     #: keeps this order rather than re-deriving it.
     activities: list[GanttBar]
+    #: Dependencies between the activities above, in stored order.
+    links: list[GanttLink] = Field(default_factory=list)
+    link_counts: GanttLinkCounts = Field(
+        default_factory=lambda: GanttLinkCounts(
+            total=0, drawable=0, dangling=0, truncated=False
+        )
+    )
     returned: int
     #: Activities matching the filter before the limit was applied.
     total: int
@@ -358,6 +409,54 @@ def _sort_key(bar: GanttBar) -> tuple:
     return (bar.start is None, bar.start or datetime.min, bar.code or "", bar.source_id)
 
 
+def _links(
+    schedule: Schedule, drawn: list[GanttBar]
+) -> tuple[list[GanttLink], GanttLinkCounts]:
+    """Dependencies between the bars that are actually on screen.
+
+    Both endpoints must be in ``drawn``. Three separate things put a relationship outside
+    that set and none of them is a data problem the chart should shout about: a WBS or
+    critical-path filter, the row limit, and a link crossing into another project (which
+    the parser already warns about on import). They are counted together as ``dangling``
+    and left undrawn.
+    """
+    critical = {bar.source_id for bar in drawn if bar.is_critical}
+    present = {bar.source_id for bar in drawn}
+
+    links: list[GanttLink] = []
+    drawable = 0
+    for relationship in schedule.relationships:
+        if (
+            relationship.predecessor_id not in present
+            or relationship.successor_id not in present
+        ):
+            continue
+        drawable += 1
+        if len(links) >= MAX_GANTT_LINKS:
+            continue
+        links.append(
+            GanttLink(
+                source_id=relationship.id,
+                predecessor_source_id=relationship.predecessor_id,
+                successor_source_id=relationship.successor_id,
+                type=relationship.type.value,
+                lag_days=relationship.lag.days if relationship.lag else None,
+                is_critical=(
+                    relationship.predecessor_id in critical
+                    and relationship.successor_id in critical
+                ),
+            )
+        )
+
+    total = len(schedule.relationships)
+    return links, GanttLinkCounts(
+        total=total,
+        drawable=drawable,
+        dangling=total - drawable,
+        truncated=drawable > len(links),
+    )
+
+
 def build_payload(
     schedule: Schedule,
     version: ScheduleVersion,
@@ -455,6 +554,7 @@ def build_payload(
 
     total = len(ordered_bars)
     returned_bars = ordered_bars[:limit]
+    links, link_counts = _links(schedule, returned_bars)
 
     dated_all = [
         b for b in ordered_bars if b.start is not None and b.finish is not None
@@ -493,6 +593,8 @@ def build_payload(
         gate=gate,
         wbs=wbs_rows,
         activities=returned_bars,
+        links=links,
+        link_counts=link_counts,
         returned=len(returned_bars),
         total=total,
         truncated=total > len(returned_bars),
