@@ -7,6 +7,9 @@ Schedule ingestion, the DCMA gate, the Gantt and risk-to-activity mapping split 
 `claude/ref/schedule.md` on 2026-07-30. What stays here is cross-cutting: it applies
 whatever subsystem you are in.
 
+The Monte Carlo engine split out to `claude/ref/simulation.md` on 2026-07-31, at creation
+rather than after the fact.
+
 ## Invariants
 
 ### Percentile arithmetic
@@ -79,6 +82,25 @@ Calendar-agnostic day counts are a silent corruption source across `.xer` import
   rows it actually removed rather than a number it assumed.
 
 ## Decisions
+
+### 2026-07-31 — the percentile and correlation invariants now have code behind them
+
+`app/sim/` lands with 134 tests, of which `tests/sim/test_invariants.py` is the statistical
+regression suite the standing rule requires. The invariants above stop being prose:
+
+- **Percentile arithmetic.** `ContingencyView` carries the additive answer next to the
+  integrated one and warns when the gap passes 1% of the contingency. On the reference
+  fixture the additive method overstates by about 3%.
+- **Correlation.** Iman-Conover with a Spearman-to-Pearson conversion and eigenvalue-clip
+  repair. `test_independent_sampling_understates_the_tail` holds the mean fixed and shows
+  the P90 move, which is the whole argument in one assertion.
+- **Background uncertainty.** A schedule where no activity carries a duration distribution
+  now produces a warning on the result rather than a quietly tight answer.
+- **Units.** `ScheduleInput.calendar_id` is required. Inside the engine a day is a float,
+  so this is the last boundary at which the invariant can be enforced.
+
+Design detail, gotchas and the NumPy-only decision are in `claude/ref/simulation.md`.
+
 
 ### 2026-07-24 — doc architecture established
 

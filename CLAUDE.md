@@ -25,6 +25,7 @@ probabilistic math, schedule semantics, or the audit trail is never cheap to rev
 | `claude/BACKLOG.md` | Current work finished, I ask what is pending, or a watch item may have fired. |
 | `claude/REFERENCE.md` | Before editing a subsystem it documents, or when unsure why the code is the way it is. Cross-cutting invariants, gotchas, dated decisions. |
 | `claude/ref/schedule.md` | Before editing `app/schedule/`, `app/services/schedule_*`, the `schedules` or `mappings` routes, or anything under `components/gantt/` or `components/mapping/`. Ingestion, the DCMA gate, the Gantt, risk-to-activity mapping. |
+| `claude/ref/simulation.md` | Before editing `app/sim/` or anything that assembles a run from the register, the quantitative estimates or a parsed schedule. Sampling, correlation, the CPM pass, sensitivity. |
 | `claude/ref/<topic>.md` | Named directly. Split out when one subsystem's notes pass ~150 lines. |
 | `claude/plans/<n>.md` | Named directly. One file per multi-session initiative. |
 | `claude/sessions/` | Write-only archive. Never read unless I ask about a specific date. |
