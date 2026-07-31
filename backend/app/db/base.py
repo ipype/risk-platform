@@ -22,3 +22,8 @@ from app.models.mapping import (  # noqa: F401
     MappingSuggestionOutcome,
     RiskActivityMapping,
 )
+from app.models.quant import (  # noqa: F401
+    RiskDriver,
+    RiskDriverLink,
+    RiskQuantEstimate,
+)

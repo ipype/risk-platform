@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -50,6 +51,14 @@ class Risk(Base):
     target_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_impact_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     target_risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    #: Triage flag for the quantitative pass. Set from the matrix, which screens for where
+    #: elicitation time is worth spending — it never supplies the numbers themselves.
+    #: Managed through the quant routes, not the register PATCH, so triage decisions carry
+    #: their own history entries.
+    quantify: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
     mitigation_actions: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner: Mapped[str | None] = mapped_column(String(200), nullable=True)

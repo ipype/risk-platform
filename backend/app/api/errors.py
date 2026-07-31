@@ -16,6 +16,8 @@ from app.core.errors import (
     MalformedScheduleFile,
     ParserUnavailable,
     ProjectNotFound,
+    QuantEstimateInvalid,
+    QuantEstimateLocked,
     RiskPlatformError,
     ScheduleDeleteBlocked,
     UnsupportedScheduleFormat,
@@ -88,6 +90,28 @@ async def _malformed(request: Request, exc: MalformedScheduleFile) -> JSONRespon
     return JSONResponse(status_code=422, content=_payload("malformed_file", str(exc)))
 
 
+async def _quant_invalid(request: Request, exc: QuantEstimateInvalid) -> JSONResponse:
+    # 422 rather than 400: the payload parsed cleanly and every field is the right type.
+    # What failed is the relationship between them, which is exactly what 422 is for.
+    return JSONResponse(
+        status_code=422,
+        content=_payload("quant_estimate_invalid", str(exc), issues=exc.issues),
+    )
+
+
+async def _quant_locked(request: Request, exc: QuantEstimateLocked) -> JSONResponse:
+    # 409: the caller is allowed to do this, but not while a run depends on the numbers.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "quant_estimate_locked",
+            str(exc),
+            risk_id=exc.risk_id,
+            scenario=exc.scenario,
+        ),
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -99,4 +123,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(UnsupportedScheduleFormat, _unsupported_format)  # type: ignore[arg-type]
     app.add_exception_handler(ParserUnavailable, _parser_unavailable)  # type: ignore[arg-type]
     app.add_exception_handler(MalformedScheduleFile, _malformed)  # type: ignore[arg-type]
+    app.add_exception_handler(QuantEstimateInvalid, _quant_invalid)  # type: ignore[arg-type]
+    app.add_exception_handler(QuantEstimateLocked, _quant_locked)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

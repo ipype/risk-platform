@@ -89,3 +89,36 @@ class ProjectNotFound(ScheduleError):
         super().__init__(
             f"Project '{project_id}' not in file. Available: {', '.join(available) or 'none'}"
         )
+
+
+class QuantError(RiskPlatformError):
+    """Base class for quantitative elicitation failures."""
+
+
+class QuantEstimateInvalid(QuantError):
+    """The estimate cannot be sampled as given.
+
+    Carries every failing rule rather than the first one, because an SME correcting a
+    form one error per round trip stops correcting it.
+    """
+
+    def __init__(self, issues: list[dict]) -> None:
+        self.issues = issues
+        summary = "; ".join(f"{i['field']}: {i['message']}" for i in issues)
+        super().__init__(f"Estimate is not simulable. {summary}")
+
+
+class QuantEstimateLocked(QuantError):
+    """The estimate is frozen against a simulation run.
+
+    Blocked rather than versioned-around: a run whose inputs moved after the fact is not
+    reproducible, and reproducibility is the whole basis for defending the number.
+    """
+
+    def __init__(self, risk_id: int, scenario: str) -> None:
+        self.risk_id = risk_id
+        self.scenario = scenario
+        super().__init__(
+            f"The {scenario.replace('_', ' ')} estimate for risk {risk_id} is locked "
+            "against a simulation run. Unlock it explicitly before editing."
+        )
