@@ -1,0 +1,551 @@
+/* Quantitative elicitation. Prefixed `qnt-` and self-contained, matching the `map-` and
+   `mtx-` convention: nothing here cascades out, and nothing outside is relied on. */
+
+.qnt-view {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+}
+
+/* Below a laptop the two panes stop fitting side by side; the rail becomes a short,
+   scrollable index above the form rather than a squeezed column beside it. */
+@media (max-width: 900px) {
+  .qnt-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qnt-risklist {
+    max-height: 220px;
+  }
+}
+
+.qnt-rail {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.qnt-rail-head {
+  padding: 12px;
+  border-bottom: 1px solid #eceae4;
+}
+.qnt-rail-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.qnt-coverage {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #4a4a46;
+}
+.qnt-gap {
+  color: #a3552d;
+}
+
+.qnt-risklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.qnt-riskrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #f2f1ec;
+}
+.qnt-riskrow-active {
+  background: #eef3fb;
+}
+.qnt-riskbtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.qnt-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #6c6b65;
+}
+.qnt-risktitle {
+  font-size: 13px;
+  line-height: 1.35;
+  /* Titles run long and a wrapping list makes the rail unscannable. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.qnt-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #fbeaea;
+  color: #8a2f2f;
+}
+.qnt-empty-note {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: #6c6b65;
+  line-height: 1.5;
+}
+
+.qnt-main {
+  min-width: 0;
+}
+.qnt-panel {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+.qnt-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.qnt-panel-title {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 500;
+}
+.qnt-empty {
+  padding: 32px;
+  text-align: center;
+  color: #6c6b65;
+  line-height: 1.6;
+}
+
+.qnt-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0 12px;
+  border-bottom: 1px solid #eceae4;
+}
+.qnt-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: #55544f;
+  cursor: pointer;
+}
+.qnt-tab-active {
+  border-bottom-color: #2f6fb5;
+  color: #1c3f68;
+}
+
+.qnt-occurrence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+  padding: 12px;
+  background: #faf9f5;
+  border-radius: 6px;
+}
+
+.qnt-dimensions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.qnt-dimension {
+  border: 1px solid #e6e4dd;
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 0;
+}
+.qnt-dimension-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qnt-dimension-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.qnt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.qnt-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.qnt-label {
+  font-size: 12px;
+  color: #55544f;
+}
+.qnt-input,
+.qnt-select,
+.qnt-textarea {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 7px;
+  border: 1px solid #cfcdc5;
+  border-radius: 4px;
+  background: #fff;
+  min-width: 0;
+  max-width: 100%;
+}
+.qnt-textarea {
+  resize: vertical;
+  width: 100%;
+}
+.qnt-input-sm,
+.qnt-select-sm {
+  max-width: 130px;
+}
+.qnt-input-bad {
+  border-color: #c0504a;
+  background: #fdf6f6;
+}
+.qnt-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.qnt-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.qnt-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qnt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qnt-guidance {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4a4a46;
+  background: #f7f6f1;
+  border-left: 2px solid #c9c7bf;
+  border-radius: 0;
+  padding: 8px 10px;
+}
+.qnt-guidance-summary {
+  margin: 0 0 6px;
+  color: #2f2f2c;
+}
+.qnt-guidance-line {
+  margin: 0 0 6px;
+}
+.qnt-guidance-line strong {
+  font-weight: 500;
+  color: #2f2f2c;
+}
+.qnt-guidance-caution {
+  color: #7a4a1c;
+}
+
+.qnt-rationale {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.qnt-why {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: #2f6fb5;
+  cursor: pointer;
+}
+.qnt-why-open {
+  color: #1c3f68;
+}
+.qnt-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2f6fb5;
+  display: inline-block;
+}
+.qnt-dot-ai {
+  background: #b07a1c;
+}
+.qnt-rationale-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.qnt-rationale-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.qnt-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #eceae4;
+  color: #4a4a46;
+}
+.qnt-badge-ai {
+  background: #fbf0d9;
+  color: #7a5210;
+}
+
+.qnt-points-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.qnt-points-table th {
+  text-align: left;
+  font-weight: 500;
+  color: #55544f;
+  padding: 4px 6px 4px 0;
+}
+.qnt-points-table td {
+  padding: 2px 6px 2px 0;
+}
+.qnt-points-table .qnt-input {
+  width: 100%;
+}
+.qnt-points-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.qnt-preview {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #eceae4;
+}
+.qnt-preview-svg {
+  display: block;
+}
+.qnt-axis {
+  stroke: #cfcdc5;
+  stroke-width: 1;
+}
+.qnt-curve-fill {
+  fill: #dce9f8;
+}
+.qnt-curve-line {
+  fill: none;
+  stroke: #2f6fb5;
+  stroke-width: 1.5;
+}
+.qnt-curve-bar {
+  fill: #2f6fb5;
+}
+.qnt-tick-mean {
+  stroke: #1c3f68;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+/* The values the SME actually typed, marked inside the recovered support so a widened
+   range does not read as the form ignoring them. */
+.qnt-tick-elicited {
+  stroke: #b07a1c;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.qnt-axis-label {
+  font-size: 10px;
+  fill: #6c6b65;
+}
+.qnt-axis-end {
+  text-anchor: end;
+}
+
+.qnt-stats {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0 0;
+  flex-wrap: wrap;
+}
+.qnt-stats div {
+  display: flex;
+  flex-direction: column;
+}
+.qnt-stats dt {
+  font-size: 11px;
+  color: #6c6b65;
+}
+.qnt-stats dd {
+  margin: 0;
+  font-size: 13px;
+}
+.qnt-widened {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a5210;
+  background: #fdf7e8;
+  padding: 7px 9px;
+  border-radius: 4px;
+}
+
+.qnt-warnings {
+  margin: 12px 0;
+  padding: 10px 12px 10px 28px;
+  background: #fdf7e8;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #6b5216;
+}
+.qnt-warnings strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 400;
+  font-size: 11px;
+  margin-right: 4px;
+}
+.qnt-error {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #a3352f;
+}
+.qnt-warn,
+.qnt-warn-inline {
+  font-size: 12px;
+  color: #7a5210;
+}
+.qnt-banner {
+  margin: 10px 0;
+  padding: 8px 10px;
+  background: #fbeaea;
+  color: #8a2f2f;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.qnt-locked {
+  margin: 10px 0;
+  padding: 8px 10px;
+  background: #f1efe8;
+  color: #4a4a46;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.qnt-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #eceae4;
+}
+.qnt-primary,
+.qnt-secondary,
+.qnt-mini {
+  font: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.qnt-primary {
+  font-size: 13px;
+  padding: 7px 14px;
+  border: 1px solid #2f6fb5;
+  background: #2f6fb5;
+  color: #fff;
+}
+.qnt-secondary {
+  font-size: 13px;
+  padding: 7px 12px;
+  border: 1px solid #cfcdc5;
+  background: #fff;
+  color: #2f2f2c;
+}
+.qnt-mini {
+  font-size: 11px;
+  padding: 2px 7px;
+  border: 1px solid #d8d8d2;
+  background: #fff;
+  color: #4a4a46;
+}
+.qnt-primary:disabled,
+.qnt-secondary:disabled,
+.qnt-mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qnt-muted {
+  font-size: 12px;
+  color: #6c6b65;
+}
+.qnt-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #e3e1d9;
+  color: #55544f;
+  font-size: 9px;
+  cursor: help;
+}
+
+/* Visible to screen readers only. */
+.qnt-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

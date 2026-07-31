@@ -112,6 +112,7 @@ async def _quant_locked(request: Request, exc: QuantEstimateLocked) -> JSONRespo
     )
 
 
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 

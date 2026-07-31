@@ -7,11 +7,13 @@ import ActivityView from "./views/ActivityView";
 import MappingView from "./views/MappingView";
 import ScheduleView from "./views/ScheduleView";
 import GanttView from "./views/GanttView";
+import QuantifyView from "./views/QuantifyView";
 import { getActor, setActor } from "./api";
 
 type View =
   | "register"
   | "matrix"
+  | "quantify"
   | "schedule"
   | "gantt"
   | "mapping"
@@ -36,6 +38,9 @@ export default function App() {
         </button>
         <button className={view === "matrix" ? "navlink active" : "navlink"} onClick={() => setView("matrix")}>
           Matrix
+        </button>
+        <button className={view === "quantify" ? "navlink active" : "navlink"} onClick={() => setView("quantify")}>
+          Quantify
         </button>
         <button className={view === "schedule" ? "navlink active" : "navlink"} onClick={() => setView("schedule")}>
           Schedule
@@ -67,6 +72,7 @@ export default function App() {
       </nav>
       {view === "register" && <RegisterView />}
       {view === "matrix" && <MatrixView />}
+      {view === "quantify" && <QuantifyView />}
       {view === "schedule" && <ScheduleView />}
       {view === "gantt" && <GanttView />}
       {view === "mapping" && <MappingView />}

@@ -108,6 +108,7 @@ class QuantEstimateInvalid(QuantError):
         super().__init__(f"Estimate is not simulable. {summary}")
 
 
+
 class QuantEstimateLocked(QuantError):
     """The estimate is frozen against a simulation run.
 
