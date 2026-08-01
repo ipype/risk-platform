@@ -15,6 +15,7 @@ from app.models.schedule import (  # noqa: F401
     ScheduleVersion,
     ScheduleWbs,
 )
+from app.models.simulation import SimulationRun  # noqa: F401
 from app.models.system import SystemMeta  # noqa: F401
 
 from app.models.mapping import (  # noqa: F401

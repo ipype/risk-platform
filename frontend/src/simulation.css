@@ -1,0 +1,651 @@
+/* Monte Carlo run configuration and results. Prefixed `sim-` and self-contained,
+   matching the `qnt-`, `map-` and `mtx-` convention: nothing here cascades out, and
+   nothing outside it is relied on beyond the tokens in index.css and the shared
+   `.btn`, `.link`, `.muted`, `.empty` and `.error` utilities.
+
+   Two colours carry meaning and are named rather than repeated: cost risk is the
+   platform green, schedule-driven cost is violet. They appear in the tornado bars, in
+   the variance split under the headline, and nowhere else — a reader who learns them
+   once should not have to relearn them per chart. */
+
+:root {
+  --sim-cost: #2f6f4e;
+  --sim-sched: #5a54a8;
+  --sim-warn: #8a6d1f;
+  --sim-warn-bg: #fdf8e8;
+}
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px 0;
+}
+
+/* Below a laptop the result pane stops having room for a chart beside a form. The
+   config becomes a band above it rather than a squeezed column. */
+@media (max-width: 1000px) {
+  .sim-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sim-config,
+.sim-result {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 16px;
+  min-width: 0;
+}
+
+.sim-h {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sim-result .sim-h {
+  margin-top: 28px;
+}
+
+/* ---------------------------------------------------------------- configuration */
+
+.sim-field {
+  display: block;
+  margin-bottom: 12px;
+}
+.sim-field > span {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.sim-field input,
+.sim-field select,
+.sim-field textarea {
+  width: 100%;
+}
+.sim-field input:disabled {
+  background: #f4f5f6;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.sim-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sim-hint {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.sim-hint code {
+  font-size: 11px;
+  background: #f0f1f2;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.sim-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.sim-check input {
+  margin-top: 2px;
+}
+
+/* The gate is a refusal with a way through, not an error. Amber rather than red: red
+   reads as "you broke something", and a schedule that fails DCMA is a finding about
+   the schedule that the analyst may legitimately choose to own. */
+.sim-gate {
+  border: 1px solid #e6d9a8;
+  border-left: 3px solid var(--sim-warn);
+  border-radius: 8px;
+  background: var(--sim-warn-bg);
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.sim-gate h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sim-warn);
+}
+.sim-gate p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sim-gate ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.sim-gate textarea {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.sim-gate .sim-hint {
+  margin: 0;
+}
+
+.sim-issues {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sim-preview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafbfb;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.sim-preview h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-preview dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.sim-preview dl > div {
+  min-width: 0;
+}
+.sim-preview dt {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.sim-preview dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Open by default in the markup, because a contingency computed over part of the
+   register without saying so is worse than none. */
+.sim-excluded {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.sim-excluded summary {
+  cursor: pointer;
+  color: var(--sim-warn);
+  font-weight: 500;
+}
+.sim-excluded ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+.sim-notes {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.sim-fingerprint {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sim-run {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------- run list */
+
+.sim-runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sim-run-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "status name"
+    "meta   meta";
+  gap: 2px 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.sim-run-item:hover {
+  background: #f0f1f2;
+}
+.sim-run-item.active {
+  border-color: var(--primary);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.sim-run-name {
+  grid-area: name;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sim-run-meta {
+  grid-area: meta;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sim-status {
+  grid-area: status;
+  align-self: center;
+  justify-self: start;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: #eceef0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sim-status.running,
+.sim-status.queued {
+  background: #e8eef5;
+  color: #2c5b86;
+}
+.sim-status.succeeded {
+  background: #e6f0ea;
+  color: var(--primary);
+}
+.sim-status.failed {
+  background: #f7e8e8;
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------------- result */
+
+.sim-result-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.sim-result-head h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.sim-result-head .sim-run-meta {
+  margin: 0;
+}
+.sim-override {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--sim-warn);
+  border-left: 3px solid var(--sim-warn);
+  padding-left: 8px;
+  line-height: 1.5;
+}
+
+/* Caveats sit above the number, never below it. Anything that qualifies the headline
+   has to be read before the headline, or it will not be read. */
+.sim-caveats {
+  border: 1px solid #e6d9a8;
+  border-radius: 8px;
+  background: var(--sim-warn-bg);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.sim-caveats p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.sim-caveats p:last-child {
+  margin-bottom: 0;
+}
+
+.sim-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafbfb;
+  padding: 16px;
+}
+.sim-headline-figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sim-headline-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sim-headline-value {
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.sim-headline-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.sim-split {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sim-split span:first-child strong {
+  color: var(--sim-cost);
+}
+.sim-split span:last-child strong {
+  color: var(--sim-sched);
+}
+.sim-split strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reconciliation is the point of the screen, so it gets the weight of a claim
+   rather than the weight of a footnote. */
+.sim-reconcile {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sim-sched);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.sim-reconcile h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-reconcile p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.sim-reconcile strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-warnings {
+  border: 1px solid #e6d9a8;
+  border-radius: 8px;
+  background: var(--sim-warn-bg);
+  padding: 12px;
+  margin-top: 12px;
+}
+.sim-warnings h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sim-warn);
+}
+.sim-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.sim-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+/* ---------------------------------------------------------------------- tables */
+
+.sim-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.sim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sim-table th,
+.sim-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid #eceef0;
+  white-space: nowrap;
+}
+.sim-table thead th {
+  background: #fafbfb;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+}
+.sim-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.sim-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sim-table .sim-name {
+  white-space: normal;
+  min-width: 200px;
+}
+/* P80 is the row people came for. */
+.sim-table .sim-row-key td {
+  background: #f2f7f4;
+  font-weight: 600;
+}
+.sim-table .sim-inserted td {
+  background: #f8f7fc;
+}
+.sim-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: #ece9f7;
+  color: var(--sim-sched);
+}
+
+.sim-manifest {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.sim-manifest > div {
+  min-width: 0;
+}
+.sim-manifest dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+.sim-manifest dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.sim-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* ---------------------------------------------------------------------- charts */
+
+.sim-chart {
+  margin: 0 0 8px;
+}
+.sim-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+.sim-chart-caption {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.sim-chart-empty {
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  margin: 0 0 8px;
+}
+.sim-chart-note {
+  display: block;
+  margin-top: 4px;
+}
+
+.sim-axis {
+  stroke: #c9ced4;
+  stroke-width: 1;
+}
+.sim-grid {
+  stroke: #eceef0;
+  stroke-width: 1;
+}
+.sim-axis-text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.sim-curve-line {
+  fill: none;
+  stroke: var(--sim-cost);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.sim-curve-fill {
+  fill: var(--sim-cost);
+  opacity: 0.1;
+  stroke: none;
+}
+.sim-marker-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.sim-marker-dot {
+  fill: var(--sim-cost);
+}
+.sim-marker-text {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sim-tornado-row.clickable {
+  cursor: pointer;
+}
+.sim-tornado-row.clickable:hover .sim-tornado-label {
+  fill: var(--text);
+  font-weight: 500;
+}
+.sim-tornado-label {
+  fill: var(--muted);
+  font-size: 11px;
+  dominant-baseline: middle;
+}
+.sim-tornado-value {
+  fill: var(--text);
+  font-size: 11px;
+  dominant-baseline: middle;
+  font-variant-numeric: tabular-nums;
+}
+.sim-bar-cost {
+  fill: var(--sim-cost);
+}
+/* A risk that moves against the total is real and worth seeing rather than hidden
+   behind an absolute value, so it gets its own colour instead of the same bar. */
+.sim-bar-cost.negative {
+  fill: var(--danger);
+}
+.sim-bar-sched {
+  fill: var(--sim-sched);
+}
+
+.sim-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 12px;
+}
+.sim-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.sim-swatch.cost {
+  background: var(--sim-cost);
+}
+.sim-swatch.sched {
+  background: var(--sim-sched);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sim-status.running {
+    animation: sim-pulse 1.8s ease-in-out infinite;
+  }
+}
+@keyframes sim-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}

@@ -20,6 +20,8 @@ from app.core.errors import (
     QuantEstimateLocked,
     RiskPlatformError,
     ScheduleDeleteBlocked,
+    ScheduleGateBlocked,
+    SimulationNotAssemblable,
     UnsupportedScheduleFormat,
 )
 
@@ -113,6 +115,32 @@ async def _quant_locked(request: Request, exc: QuantEstimateLocked) -> JSONRespo
 
 
 
+async def _not_assemblable(
+    request: Request, exc: SimulationNotAssemblable
+) -> JSONResponse:
+    # 422 for the same reason the quant routes use it: every field parsed and every type
+    # is right. What failed is the relationship between the register, the estimates and
+    # the schedule, and each issue names something to go and fix.
+    return JSONResponse(
+        status_code=422,
+        content=_payload("simulation_not_assemblable", str(exc), issues=exc.issues),
+    )
+
+
+async def _gate_blocked(request: Request, exc: ScheduleGateBlocked) -> JSONResponse:
+    # 409, like the delete confirmation: the request is legitimate and the caller may make
+    # it. What is missing is a decision — fix the schedule, or own the override.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "schedule_gate_blocked",
+            str(exc),
+            version_id=exc.version_id,
+            blocking_failures=exc.blocking,
+        ),
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -126,4 +154,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(MalformedScheduleFile, _malformed)  # type: ignore[arg-type]
     app.add_exception_handler(QuantEstimateInvalid, _quant_invalid)  # type: ignore[arg-type]
     app.add_exception_handler(QuantEstimateLocked, _quant_locked)  # type: ignore[arg-type]
+    app.add_exception_handler(SimulationNotAssemblable, _not_assemblable)  # type: ignore[arg-type]
+    app.add_exception_handler(ScheduleGateBlocked, _gate_blocked)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

@@ -91,6 +91,37 @@ class ProjectNotFound(ScheduleError):
         )
 
 
+class SimulationNotAssemblable(RiskPlatformError):
+    """A run cannot be built from the register, the estimates and the schedule as they are.
+
+    Distinct from :class:`~app.sim.errors.SimulationInputInvalid`, which the engine raises
+    about a request it has already been handed. This one is raised before a request
+    exists, and every issue in it names something an analyst can go and fix.
+    """
+
+    def __init__(self, issues: list[str]) -> None:
+        self.issues = issues
+        super().__init__(
+            f"Simulation cannot be assembled ({len(issues)} problem(s)): "
+            + "; ".join(issues)
+        )
+
+
+class ScheduleGateBlocked(RiskPlatformError):
+    """The schedule has not passed the DCMA 14-point gate (invariant 3).
+
+    Not a validation failure and not a permissions failure: the request is well formed and
+    the caller is allowed to make it. What is missing is a decision — fix the schedule, or
+    take responsibility for simulating one that failed. The override is a field on the run
+    record, so the decision travels with the number it produced.
+    """
+
+    def __init__(self, version_id: int, message: str, blocking: list) -> None:
+        self.version_id = version_id
+        self.blocking = blocking
+        super().__init__(message)
+
+
 class QuantError(RiskPlatformError):
     """Base class for quantitative elicitation failures."""
 

@@ -16,6 +16,12 @@ class Settings(BaseSettings):
 
     backend_cors_origins: str = "http://localhost:5173"
 
+    #: Run the engine inside the request instead of queueing it. Development and tests
+    #: only — a real network at ten thousand iterations holds the connection for minutes.
+    simulation_eager: bool = False
+    #: Celery hard time limit for one run, in seconds.
+    simulation_time_limit_seconds: int = 3600
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]

@@ -41,6 +41,20 @@ services:
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
+  worker:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    # No --reload equivalent: Celery reloads by restarting, and the compose mount means a
+    # `docker compose restart worker` picks up a code change in a second.
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+
   web:
     image: node:20-alpine
     working_dir: /app
