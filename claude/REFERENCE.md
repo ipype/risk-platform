@@ -217,3 +217,55 @@ directories: an untracked directory is reported as a single entry, so `app/tasks
 `-r` revealed it. Use `--untracked-files=all`. This is precisely the class of error the
 fresh-clone verification step exists to catch, and it would have caught it — the reason to
 write it down is that the packaging loop looked obviously correct.
+
+### 2026-08-01 — portfolio/program/project hierarchy: scope, rollup methods, and where the schema lands
+
+Sam wants a portfolio of programs and projects, with a collapsible tree that scopes the
+register and every downstream page, and QRA results rollable up to program and portfolio
+level. Design settled this session:
+
+- **Scope is a context, not a set of separate pages.** The selected tree node — portfolio,
+  program, or project — is applied to the existing register, mapping, simulation and report
+  pages. No parallel "program register" component; the same component filters by scope.
+- **Hierarchy is a strict tree.** One parent per node, no project shared across programs.
+  This resolves the tenancy Blocked item in `BACKLOG.md` — it was the same decision wearing
+  a different name.
+- **Program register holds three classes of risk**: rolled-up (read-only at program level,
+  owned and edited only at the project that created it — editing at program level would
+  fork the audit trail), escalated (still project-owned, flagged upward when exposure
+  crosses a program threshold), and program-native (interfaces, shared procurement, a
+  shared site's weather — these map to activities across *multiple* projects using the
+  existing shared-draw Hulett semantic: one delay draw per risk, applied everywhere it's
+  mapped, same as a single risk driving several activities on one calendar).
+- **Two rollup methods, chosen per run, not one over the other**:
+  - *Method A — integrated master schedule.* Upload an IMS through the existing `.xer`
+    pipeline; the DCMA gate applies unchanged (invariant 3). Best fidelity, requires an
+    actual master schedule to exist and pass the gate.
+  - *Method B — per-iteration aggregation of child runs.* For programs and portfolios where
+    no master schedule exists (the common case above project level), select one completed
+    run per child project, re-correlate their already-persisted `RunArrays` iteration
+    columns with Iman-Conover, then combine cost and schedule *inside each iteration* before
+    percentiling once. This is the percentile-arithmetic invariant extended upward:
+    **portfolio P80 is not the sum of project P80s.** A rollup run pins the child run IDs
+    and seeds it aggregated (extends invariant 6, reproducibility, to composite runs) — if a
+    child project re-simulates afterward, the rollup shows stale rather than silently
+    drifting.
+- **Quantified impacts surface in the register, but never as a raw per-risk percentile.**
+  From a risk's last accepted run: mean cost/schedule impact (means are legitimately
+  additive, unlike percentiles), contribution-to-contingency from the tornado decomposition,
+  a rank badge from the same decomposition, and a staleness flag when the risk's estimates
+  were edited after the run they're quoting. Showing a P80 per risk would recreate the
+  additive-percentile mistake one level down — reviewers would sum them.
+- **Schema and scope routing come before P5, not after P4's analytics work.** Originally
+  scoped as P8 (after P7). Sam correctly pushed it earlier: the AI agent's corpus,
+  suggestion, and workshop tables (P5) all need to know which node they belong to, and
+  retrofitting a scope foreign key through those tables later is the exact expensive-
+  retrofit scenario the tenancy Blocked item warned about. Landed as 4.7 (schema + backfill
+  migration) and 4.8 (scope tree sidebar + scoped routing) — after the simulation engine
+  that already exists, before anything in P5. The backfill touches existing tables
+  (`register`, `schedules`, `simulation_run`, ...), not just new ones — see `BACKLOG.md` →
+  Watch items for the verification approach this implies.
+- Two smaller ideas surfaced but deliberately not scheduled yet: a portfolio heat view
+  (small-multiples risk matrix) and cross-project dedup on rollup (cheap name/RBS-code
+  clustering, a preview of P5's dedup work and often the actual discovery mechanism for a
+  program-native risk). See `BACKLOG.md` → Surfaced 2026-08-01.

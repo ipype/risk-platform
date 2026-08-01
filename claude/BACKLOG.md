@@ -7,9 +7,6 @@ have fired.
 
 - Embedding provider: Voyage (hosted, per-token) vs self-hosted BGE-M3 (GPU, or slow on
   CPU). Blocks the ingestion pipeline's index build.
-- Single-tenant vs multi-tenant data model. Cheap now, expensive to retrofit after the
-  register schema lands. Also now relevant to the mapping suggestion engine's per-request
-  corpus scoring — see `claude/ref/schedule.md` 2026-07-29.
 - Deployment target (cloud, VPC, on-prem). MPXJ's JRE dependency constrains this.
 - **No ruff config, and the tree is not format-clean at any width.** `make fmt` runs
   `ruff format .` with no line-length flag, so the effective width is ruff's default 88 —
@@ -26,6 +23,13 @@ have fired.
   Adding Vitest is a stack decision against a `package.json` deliberately held at two
   runtime dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
 
+**Resolved 2026-08-01**: single- vs multi-tenant data model. Decided as a strict
+portfolio → program → project tree, one parent per node, no project shared across programs.
+See `REFERENCE.md` 2026-08-01. Implementation is `ACTIVE.md` → 4.7 (schema + backfill) and
+4.8 (scope tree sidebar + scoped routing), both pulled forward to land before P5. This also
+unblocks the mapping suggestion engine's per-request corpus scoring noted in
+`claude/ref/schedule.md` 2026-07-29 — it can now scope by node instead of guessing.
+
 ## Subsystems not yet designed in depth
 
 - Monte Carlo reporting gaps left by P4: JCL scatter (cost against delay per
@@ -41,6 +45,11 @@ have fired.
   **Partly unblocked 2026-07-30**: `GET /schedules/{id}/relationships?touching=<source_id>`
   and the predecessor/successor list in `components/gantt/ActivityDetail.tsx` are the
   primitive it was waiting on. The picker is a reuse job now, not a new endpoint.
+- Program/portfolio rollup (P8): register rollup with source-project provenance column,
+  shared/escalated risk promotion across projects, quantified-impact + rank-badge surfacing
+  in register rows, Method A (master-schedule QRA) and Method B (per-iteration aggregation
+  of child runs), and the portfolio/program dashboards. Depends on 4.7/4.8 landing first.
+  Design in `REFERENCE.md` 2026-08-01.
 
 ## Watch items
 
@@ -65,6 +74,11 @@ have fired.
 - `claude/ref/schedule.md` is at roughly 200 lines as of its first day. If the Gantt notes
   and the mapping notes both keep growing, split again on that seam rather than letting one
   file become the expensive one to open.
+- **4.7's backfill migration touches existing tables** (`register`, `schedules`,
+  `simulation_run`, and anything else that gains the scope foreign key), not just new ones.
+  Needs the offline Alembic SQL check plus a genuinely separate `AsyncSession` round-trip
+  test per the standing verification method — the SQLite `ondelete="CASCADE"` gotcha
+  already on file (`REFERENCE.md`) applies directly to a hierarchy delete path.
 
 ## Surfaced 2026-07-30
 
@@ -127,3 +141,12 @@ have fired.
   on the append-only invariant. If a register accumulates hundreds of exploratory runs this
   becomes a UI problem (the list is capped at 50) rather than a data one. Archive/hide before
   delete, if it ever needs solving.
+- **Portfolio heat view** — when the portfolio node is selected, render the risk matrix as
+  small multiples, one mini-matrix per project, so a portfolio manager sees at a glance
+  which project's profile is deteriorating. Reuses the existing matrix component in a loop;
+  no new visualization primitive needed. Not scheduled — no WBS line yet.
+- **Cross-project dedup on rollup** — when the program register unions child registers,
+  cluster near-duplicate risks (same name/RBS code across projects) as a cheap preview of
+  the P5 dedup work. Often *is* the discovery mechanism for a program-native risk: four
+  projects independently carrying "permit delay" usually means it should be promoted, not
+  left duplicated. Not scheduled — no WBS line yet.
