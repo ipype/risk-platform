@@ -45,6 +45,13 @@ class ScheduleFile(Base):
     __tablename__ = "schedule_file"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    #: The project that uploaded this file. Scope lands on the file rather than on every
+    #: parse of it: ``ScheduleVersion`` reaches it through ``file_id``, and one owner for
+    #: an immutable upload and all its derived parses beats two that can disagree.
+    scope_id: Mapped[int] = mapped_column(
+        ForeignKey("scope_node.id", ondelete="RESTRICT"), index=True
+    )
     filename: Mapped[str] = mapped_column(String(500))
     suffix: Mapped[str] = mapped_column(String(20), index=True)
     content: Mapped[bytes] = mapped_column(LargeBinary)

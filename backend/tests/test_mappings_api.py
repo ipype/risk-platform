@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.models.mapping import MappingHistory, MappingSuggestionOutcome, RiskActivityMapping
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.models.scope import ScopeNode
 from app.models.schedule import (
     ScheduleActivity,
     ScheduleFile,
@@ -50,26 +51,29 @@ async def env(tmp_path):
         db.add(sub)
         await db.flush()
 
+        db.add(ScopeNode(id=1, kind="project", name="Test project", created_by="test"))
+        await db.flush()
+
         risks = [
-            Risk(subcategory_id=sub.id, seq=1, risk_code="REG-010-0001",
+            Risk(scope_id=1, subcategory_id=sub.id, seq=1, risk_code="REG-010-0001",
                  title="Environmental permit approval delayed by regulator",
                  causes="Incomplete submission; regulator backlog",
                  consequences="Construction start pushed back",
                  status="Open", probability=4, impact=4,
                  impact_scores={"SCHED": 4, "COST": 3}),
-            Risk(subcategory_id=sub.id, seq=2, risk_code="REG-010-0002",
+            Risk(scope_id=1, subcategory_id=sub.id, seq=2, risk_code="REG-010-0002",
                  title="Concrete supply interruption",
                  causes="Single supplier", consequences="Foundation works extend",
                  status="Open", probability=3, impact=3,
                  impact_scores={"SCHED": 3}),
-            Risk(subcategory_id=sub.id, seq=3, risk_code="REG-010-0003",
+            Risk(scope_id=1, subcategory_id=sub.id, seq=3, risk_code="REG-010-0003",
                  title="Reputational exposure from local media",
                  status="Open", probability=2, impact=2,
                  impact_scores={"REP": 3}),  # no schedule impact -> out of coverage scope
         ]
         db.add_all(risks)
 
-        f = ScheduleFile(filename="p.xer", suffix=".xer", content=b"x",
+        f = ScheduleFile(scope_id=1, filename="p.xer", suffix=".xer", content=b"x",
                          content_sha256="a" * 64, size_bytes=1)
         db.add(f)
         await db.flush()

@@ -40,6 +40,7 @@ from app.sim.correlation import CorrelationReport, induce_rank_correlation
 from app.sim.errors import RunTooLarge, SimulationInputInvalid
 from app.sim.distributions import DistributionSpec
 from app.sim.inputs import RiskInput, RunConfig, SimulationRequest
+from app.sim.joint import JointConfidence, joint_confidence
 from app.sim.network import CRITICAL_TOLERANCE, CompiledNetwork
 from app.sim.results import (
     ContingencyView,
@@ -63,7 +64,13 @@ __all__ = ["ENGINE_VERSION", "SimulationResult", "RunArrays", "Outcome", "run"]
 
 #: Bumped whenever a change moves the numbers. Part of every manifest, because "same
 #: inputs, same answer" is only meaningful next to the code that produced it.
-ENGINE_VERSION = "1.0.0"
+#:
+#: 1.1.0 moved no number. It added the joint cost-schedule view and the schedule
+#: sensitivity index to the reported result, and the minor bump is what lets a stored run
+#: be told apart from one that simply had nothing joint to report. Every 1.0.0 percentile
+#: reproduces exactly under 1.1.0, and the request fingerprint is untouched because
+#: neither addition took a new config field.
+ENGINE_VERSION = "1.1.0"
 
 #: Below this many expected occurrences a risk's own tail is too thinly sampled to read.
 _THIN_TAIL_OCCURRENCES = 30
@@ -95,6 +102,9 @@ class SimulationResult(BaseModel):
     #: subtotals.
     schedule_variance_share: float = 0.0
     activity_criticality: tuple[ActivityCriticality, ...] = ()
+    #: The cost and date distributions read together rather than side by side. ``None`` on
+    #: a cost-only run, and on a run too short to place a joint quantile in.
+    joint: JointConfidence | None = None
     correlation: CorrelationReport = CorrelationReport(variables=0)
     warnings: tuple[str, ...] = ()
 
@@ -351,6 +361,8 @@ def run(req: SimulationRequest) -> Outcome:
         cfg, total_summary, total_cost, risk_cost, delay, schedule_cost, warnings
     )
 
+    joint = _joint(cfg, total_cost, delay, det.baseline_finish_day, warnings)
+
     ids = tuple(r.risk_id for r in req.risks)
     contributions = (
         np.column_stack([cost_contrib.get(i, np.zeros(n)) for i in ids])
@@ -392,6 +404,7 @@ def run(req: SimulationRequest) -> Outcome:
             variance_shares(schedule_cost[:, None], total_cost)[0]
         ),
         activity_criticality=criticality,
+        joint=joint,
         correlation=corr_report,
         warnings=tuple(dict.fromkeys(warnings)),
     )
@@ -407,6 +420,60 @@ def run(req: SimulationRequest) -> Outcome:
             risk_ids=ids,
         ),
     )
+
+
+def _joint(
+    cfg: RunConfig,
+    total_cost: NDArray[np.float64],
+    delay: NDArray[np.float64] | None,
+    baseline_finish: float | None,
+    warnings: list[str],
+) -> JointConfidence | None:
+    """The joint cost-date view, and the warning that is the point of having it.
+
+    Frontier targets come from the run's own percentile grid, filtered to the half of it
+    anyone commits against: a joint P5 curve is arithmetic without a use. No new setting,
+    so the request fingerprint is untouched and every run recorded before this existed
+    still verifies against its stored hash.
+    """
+    if delay is None:
+        return None
+
+    targets = tuple(p for p in sorted(cfg.percentiles) if p >= 50.0) or (80.0,)
+    view = joint_confidence(
+        total_cost,
+        delay,
+        targets=targets,
+        baseline_finish=0.0 if baseline_finish is None else baseline_finish,
+        burn_rate_coupled=cfg.burn_rate_per_day > 0.0,
+    )
+    if view is None:
+        return None
+
+    target = view.marginal_pair_target / 100.0
+    achieved = view.joint_at_marginal_pair
+    if achieved < target - 0.02:
+        frontier = next(
+            (f for f in view.frontiers if f.target == view.marginal_pair_target), None
+        )
+        balanced = frontier.balanced if frontier is not None else None
+        tail = (
+            ""
+            if balanced is None
+            else (
+                f" Holding both to P{balanced.cost_p:.0f} instead — "
+                f"{balanced.total_cost:,.0f} and {balanced.delay_days:,.0f} days — is "
+                f"the pair that is actually {view.marginal_pair_target:.0f}% confident."
+            )
+        )
+        warnings.append(
+            f"Quoting the P{view.marginal_pair_target:.0f} cost beside the "
+            f"P{view.marginal_pair_target:.0f} date describes a package that is only "
+            f"{achieved:.0%} likely to be met on both, not "
+            f"{view.marginal_pair_target:.0f}%. The two tails are not the same "
+            f"iteration.{tail}"
+        )
+    return view
 
 
 def _run_network(
@@ -564,12 +631,14 @@ def _run_network(
     delay = finish - baseline
 
     sens = accum.correlation()
+    dur_sd, finish_sd = accum.spreads()
     inserted_ids = {sid for sid, _, _ in inserted}
     labels = {a.activity_id: a for a in sched.activities}
     rows_out: list[ActivityCriticality] = []
     for i, aid in enumerate(ids):
         ci = float(crit_count[i]) / n
         s = sens[i]
+        sd_i = float(dur_sd[i])
         meta = labels.get(aid)
         rows_out.append(
             ActivityCriticality(
@@ -580,17 +649,34 @@ def _run_network(
                 mean_total_float_days=float(float_sum[i]) / n,
                 duration_sensitivity=None if np.isnan(s) else float(s),
                 cruciality=0.0 if np.isnan(s) else ci * abs(float(s)),
+                duration_sd_days=sd_i,
+                schedule_sensitivity_index=(
+                    0.0 if finish_sd <= 0.0 else ci * sd_i / finish_sd
+                ),
                 is_inserted=aid in inserted_ids,
             )
         )
     rows_out.sort(key=lambda x: (-x.cruciality, -x.criticality_index, x.activity_id))
     keep = cfg.max_sensitivity_activities
     if len(rows_out) > keep:
+        # Retained on whichever of the two rankings rates the activity higher, because
+        # they disagree on exactly the activities worth arguing about and truncating on
+        # one of them would delete the other's answer before anyone saw it.
+        rank = sorted(
+            rows_out,
+            key=lambda x: (
+                -max(x.cruciality, x.schedule_sensitivity_index),
+                -x.criticality_index,
+                x.activity_id,
+            ),
+        )
+        survivors = {x.activity_id for x in rank[:keep]}
         notes.append(
             f"Activity results are truncated to the top {keep} of {len(rows_out)} by "
-            "cruciality. Raise max_sensitivity_activities to see more."
+            "cruciality and schedule sensitivity index. Raise "
+            "max_sensitivity_activities to see more."
         )
-        rows_out = rows_out[:keep]
+        rows_out = [x for x in rows_out if x.activity_id in survivors]
 
     negative = float((delay < 0).mean())
     if negative > 0.5 and not cfg.allow_negative_delay_credit:

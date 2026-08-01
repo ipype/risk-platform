@@ -18,6 +18,7 @@ from app.models.matrix import band_for, get_active_config, overall_impact
 from app.models.mitigation import MitigationAction
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.services.scope import resolve_write_scope
 
 router = APIRouter(prefix="/risks", tags=["risks"])
 
@@ -127,19 +128,28 @@ async def create_risk(
     payload: RiskCreate,
     db: AsyncSession = Depends(get_db),
     actor: str = Header(default="Unknown", alias="X-Actor"),
+    scope_id: int | None = Query(
+        default=None,
+        description="Project this risk belongs to. Omitted means the default project.",
+    ),
 ) -> Risk:
+    scope = await resolve_write_scope(db, scope_id)
     category, subcategory = await _resolve_subcategory(db, payload.subcategory_prefix)
     config = await get_active_config(db)
 
+    # Sequenced within the scope, so every project's register starts at 0001. A global
+    # sequence would hand the second project ENV-030-0007 as its first environmental risk
+    # because another project got there first, and that is not a register anyone signs.
     max_seq = await db.execute(
         select(func.coalesce(func.max(Risk.seq), 0)).where(
-            Risk.subcategory_id == subcategory.id
+            Risk.scope_id == scope.id, Risk.subcategory_id == subcategory.id
         )
     )
     seq = max_seq.scalar_one() + 1
     risk_code = f"{category.code}-{subcategory.code}-{seq:04d}"
 
     risk = Risk(
+        scope_id=scope.id,
         subcategory_id=subcategory.id,
         seq=seq,
         risk_code=risk_code,

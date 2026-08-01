@@ -29,15 +29,32 @@ interface Props {
   rows: RiskSensitivity[];
   limit?: number;
   onSelect?: (riskId: number) => void;
+  /** `variance` decomposes total cost; `delay` ranks what moves the finish date. */
+  metric?: "variance" | "delay";
 }
 
-export default function Tornado({ rows, limit = 12, onSelect }: Props) {
-  const shown = rows.slice(0, limit);
+export default function Tornado({ rows, limit = 12, onSelect, metric = "variance" }: Props) {
+  const delayMode = metric === "delay";
+  const ranked = delayMode
+    ? rows
+        .filter((r) => r.spearman_delay != null)
+        .slice()
+        .sort((a, b) => Math.abs(b.spearman_delay ?? 0) - Math.abs(a.spearman_delay ?? 0))
+    : rows;
+  const shown = ranked.slice(0, limit);
   if (shown.length === 0) {
-    return <p className="sim-chart-empty">No risk carried enough variance to rank.</p>;
+    return (
+      <p className="sim-chart-empty">
+        {delayMode
+          ? "No risk is mapped to an activity, so nothing in the register moves the date."
+          : "No risk carried enough variance to rank."}
+      </p>
+    );
   }
 
-  const peak = Math.max(...shown.map((r) => Math.abs(r.combined_variance_share)), 1e-9);
+  const magnitude = (r: RiskSensitivity) =>
+    delayMode ? Math.abs(r.spearman_delay ?? 0) : Math.abs(r.combined_variance_share);
+  const peak = Math.max(...shown.map(magnitude), 1e-9);
   const height = shown.length * ROW_H + 28;
   const scale = (share: number) => (Math.abs(share) / peak) * PLOT_W;
 
@@ -48,16 +65,21 @@ export default function Tornado({ rows, limit = 12, onSelect }: Props) {
         className="sim-svg"
         preserveAspectRatio="xMidYMin meet"
         role="img"
-        aria-label={`Tornado: ${shown.length} risks ranked by share of total cost variance`}
+        aria-label={
+          delayMode
+            ? `Tornado: ${shown.length} risks ranked by rank correlation with project delay`
+            : `Tornado: ${shown.length} risks ranked by share of total cost variance`
+        }
       >
-        <title>Risk drivers by variance share</title>
+        <title>{delayMode ? "Risk drivers of the finish date" : "Risk drivers by variance share"}</title>
         {shown.map((row, i) => {
           const y = i * ROW_H + 6;
-          const costShare = Math.abs(row.cost_variance_share);
-          const schedShare = Math.abs(row.schedule_variance_share ?? 0);
+          const rho = row.spearman_delay ?? 0;
+          const costShare = delayMode ? Math.abs(rho) : Math.abs(row.cost_variance_share);
+          const schedShare = delayMode ? 0 : Math.abs(row.schedule_variance_share ?? 0);
           const costW = scale(costShare);
           const schedW = scale(schedShare);
-          const negative = row.combined_variance_share < 0;
+          const negative = delayMode ? rho < 0 : row.combined_variance_share < 0;
 
           return (
             <g
@@ -67,10 +89,12 @@ export default function Tornado({ rows, limit = 12, onSelect }: Props) {
             >
               <title>
                 {`${row.code} — ${row.title}\n`}
-                {`cost share ${fmtPercent(row.cost_variance_share)}, `}
-                {row.schedule_variance_share == null
-                  ? "drives no activity"
-                  : `schedule share ${fmtPercent(row.schedule_variance_share)} (apportioned)`}
+                {delayMode
+                  ? `rank correlation with project delay ${rho.toFixed(2)}`
+                  : `cost share ${fmtPercent(row.cost_variance_share)}, ` +
+                    (row.schedule_variance_share == null
+                      ? "drives no activity"
+                      : `schedule share ${fmtPercent(row.schedule_variance_share)} (apportioned)`)}
                 {`\noccurred in ${fmtPercent(row.realised_frequency)} of iterations`}
                 {`\nmean contribution ${fmtMoney(row.mean_contribution)}`}
               </title>
@@ -82,7 +106,9 @@ export default function Tornado({ rows, limit = 12, onSelect }: Props) {
                 y={y + 5}
                 width={Math.max(costW, 1)}
                 height={ROW_H - 14}
-                className={negative ? "sim-bar-cost negative" : "sim-bar-cost"}
+                className={
+                  (delayMode ? "sim-bar-sched" : "sim-bar-cost") + (negative ? " negative" : "")
+                }
               />
               {schedW > 0 && (
                 <rect
@@ -98,23 +124,35 @@ export default function Tornado({ rows, limit = 12, onSelect }: Props) {
                 y={y + ROW_H / 2}
                 className="sim-tornado-value"
               >
-                {fmtPercent(row.combined_variance_share)}
+                {delayMode ? rho.toFixed(2) : fmtPercent(row.combined_variance_share)}
               </text>
             </g>
           );
         })}
       </svg>
       <figcaption className="sim-chart-caption">
-        <span className="sim-key">
-          <span className="sim-swatch cost" /> cost draw
-        </span>
-        <span className="sim-key">
-          <span className="sim-swatch sched" /> through delay (apportioned)
-        </span>
-        <span className="sim-chart-note">
-          Shares decompose the variance of total cost. The schedule half is divided among
-          driving risks by covariance weight: the subtotal is exact, the attribution is not.
-        </span>
+        {delayMode ? (
+          <span className="sim-chart-note">
+            Rank correlation between each risk's own sampled delay and the project delay.
+            Ranking only — these bars do not add to anything, because delay is a maximum over
+            network paths and has no exact split among the risks that drive it. A risk absent
+            here drives no activity; one absent from the cost tornado carries no direct cost.
+          </span>
+        ) : (
+          <>
+            <span className="sim-key">
+              <span className="sim-swatch cost" /> cost draw
+            </span>
+            <span className="sim-key">
+              <span className="sim-swatch sched" /> through delay (apportioned)
+            </span>
+            <span className="sim-chart-note">
+              Shares decompose the variance of total cost. The schedule half is divided among
+              driving risks by covariance weight: the subtotal is exact, the attribution is
+              not.
+            </span>
+          </>
+        )}
       </figcaption>
     </figure>
   );

@@ -122,6 +122,38 @@ class ScheduleGateBlocked(RiskPlatformError):
         super().__init__(message)
 
 
+class ScopeError(RiskPlatformError):
+    """Base class for hierarchy failures."""
+
+
+class ScopeNotFound(ScopeError):
+    """A scope id was named that does not exist."""
+
+    def __init__(self, scope_id: int) -> None:
+        self.scope_id = scope_id
+        super().__init__(f"Scope {scope_id} does not exist.")
+
+
+class ScopeInvalid(ScopeError):
+    """The hierarchy would not survive the change being asked for.
+
+    Containment order, cycles, authoring at the wrong level, deleting a node that still
+    owns work. Every message names what to do instead, because every one of these is a
+    decision the analyst can make rather than a fault they have to report.
+    """
+
+
+class ScopeDeleteBlocked(ScopeError):
+    """The node still has children or still owns rows."""
+
+    def __init__(self, scope_id: int, name: str, reasons: list[str]) -> None:
+        self.scope_id = scope_id
+        self.reasons = reasons
+        super().__init__(
+            f"{name!r} cannot be deleted yet: " + "; ".join(reasons)
+        )
+
+
 class QuantError(RiskPlatformError):
     """Base class for quantitative elicitation failures."""
 

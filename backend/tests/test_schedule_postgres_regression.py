@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.config import settings
 from app.db.base_class import Base
 from app.models import schedule as schedule_models
+from app.models.scope import ScopeNode
 from app.schedule.dcma import CheckStatus, run_dcma
 from app.schedule.parsers import parse_schedule
 from app.services.schedule_ingest import create_version, run_gate, store_file
@@ -87,10 +88,16 @@ async def pg_db():
                     schedule_models.ScheduleActivity.__table__,
                     schedule_models.ScheduleRelationship.__table__,
                     schedule_models.DcmaRun.__table__,
+                    ScopeNode.__table__,
                 ],
             )
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
+            # Every schedule file belongs to a project (migration 0014).
+            session.add(
+                ScopeNode(id=1, kind="project", name="Test project", created_by="test")
+            )
+            await session.commit()
             yield session
     finally:
         await engine.dispose()
@@ -111,7 +118,7 @@ class TestNaiveAwareRegression:
         data = simple_xer()
         parsed = parse_schedule(data, "pipeline.xer")
 
-        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data)
+        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data, scope_id=1)
         await pg_db.commit()
         await pg_db.refresh(file_row)
 
@@ -129,7 +136,7 @@ class TestNaiveAwareRegression:
         data = simple_xer()
         parsed = parse_schedule(data, "pipeline.xer")
 
-        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data)
+        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data, scope_id=1)
         await pg_db.commit()
         await pg_db.refresh(file_row)
 
@@ -160,7 +167,7 @@ class TestNaiveAwareRegression:
 
         data = simple_xer()
         parsed = parse_schedule(data, "pipeline.xer")
-        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data)
+        file_row, _ = await store_file(pg_db, filename="pipeline.xer", content=data, scope_id=1)
         await pg_db.commit()
         await pg_db.refresh(file_row)
         version = await create_version(pg_db, file=file_row, schedule=parsed, created_by="test")

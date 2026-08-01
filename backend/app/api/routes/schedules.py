@@ -37,6 +37,7 @@ from app.services.schedule_gantt import (
     build_gantt,
 )
 from app.services.schedule_delete import delete_impact, delete_version
+from app.services.scope import resolve_write_scope
 from app.services.schedule_ingest import (
     MAX_UPLOAD_BYTES,
     create_version,
@@ -198,12 +199,18 @@ async def _ingest(
     filename: str,
     project_id: str | None,
     actor: str,
+    scope_id: int | None = None,
     file_row: ScheduleFile | None = None,
     file_created: bool = False,
 ) -> UploadResult | JSONResponse:
     if file_row is None:
+        scope = await resolve_write_scope(db, scope_id)
         file_row, file_created = await store_file(
-            db, filename=filename, content=content, uploaded_by=actor
+            db,
+            filename=filename,
+            content=content,
+            uploaded_by=actor,
+            scope_id=scope.id,
         )
         # Commit the source before parsing. If the file turns out to hold several
         # projects, the client can pick one and finish the job by id instead of
@@ -247,6 +254,7 @@ async def upload_schedule(
     file: UploadFile = File(...),
     project_id: str | None = Form(default=None),
     actor: str = Form(default="Unknown"),
+    scope_id: int | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a schedule, parse it, and run the DCMA gate in one call.
@@ -272,7 +280,12 @@ async def upload_schedule(
         )
 
     return await _ingest(
-        db, content=content, filename=filename, project_id=project_id, actor=actor
+        db,
+        content=content,
+        filename=filename,
+        project_id=project_id,
+        actor=actor,
+        scope_id=scope_id,
     )
 
 

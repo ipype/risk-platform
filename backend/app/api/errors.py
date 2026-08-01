@@ -21,6 +21,9 @@ from app.core.errors import (
     RiskPlatformError,
     ScheduleDeleteBlocked,
     ScheduleGateBlocked,
+    ScopeDeleteBlocked,
+    ScopeInvalid,
+    ScopeNotFound,
     SimulationNotAssemblable,
     UnsupportedScheduleFormat,
 )
@@ -141,6 +144,27 @@ async def _gate_blocked(request: Request, exc: ScheduleGateBlocked) -> JSONRespo
     )
 
 
+async def _scope_not_found(request: Request, exc: ScopeNotFound) -> JSONResponse:
+    return JSONResponse(
+        status_code=404, content=_payload("scope_not_found", str(exc), scope_id=exc.scope_id)
+    )
+
+
+async def _scope_invalid(request: Request, exc: ScopeInvalid) -> JSONResponse:
+    # 422: the request is well formed, the placement or move it describes is not one the
+    # hierarchy can hold.
+    return JSONResponse(status_code=422, content=_payload("scope_invalid", str(exc)))
+
+
+async def _scope_delete_blocked(request: Request, exc: ScopeDeleteBlocked) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "scope_delete_blocked", str(exc), scope_id=exc.scope_id, reasons=exc.reasons
+        ),
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -156,4 +180,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(QuantEstimateLocked, _quant_locked)  # type: ignore[arg-type]
     app.add_exception_handler(SimulationNotAssemblable, _not_assemblable)  # type: ignore[arg-type]
     app.add_exception_handler(ScheduleGateBlocked, _gate_blocked)  # type: ignore[arg-type]
+    app.add_exception_handler(ScopeNotFound, _scope_not_found)  # type: ignore[arg-type]
+    app.add_exception_handler(ScopeInvalid, _scope_invalid)  # type: ignore[arg-type]
+    app.add_exception_handler(ScopeDeleteBlocked, _scope_delete_blocked)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

@@ -69,6 +69,13 @@ class SimulationRun(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    #: The project this run was computed for. A program-level rollup is a different kind
+    #: of run and will carry its own child-run references (P8); this column always names a
+    #: project.
+    scope_id: Mapped[int] = mapped_column(
+        ForeignKey("scope_node.id", ondelete="RESTRICT"), index=True
+    )
     name: Mapped[str] = mapped_column(String(200), default="", server_default="")
     status: Mapped[str] = mapped_column(
         String(20), default="queued", server_default="queued", index=True

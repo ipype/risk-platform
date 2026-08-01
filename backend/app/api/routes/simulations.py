@@ -28,6 +28,7 @@ from app.models.quant import RiskQuantEstimate
 from app.models.schedule import DcmaRun, ScheduleVersion
 from app.models.simulation import SimulationRun
 from app.services import quant_validation as qv
+from app.services.scope import resolve_write_scope
 from app.services.sim_assembly import Assembly, assemble, latest_dcma
 from app.services.sim_dispatch import dispatch
 from app.services.sim_execute import load_run
@@ -304,15 +305,21 @@ async def create_run(
     payload: RunRequest,
     db: AsyncSession = Depends(get_db),
     actor: str = Header(default="Unknown", alias="X-Actor"),
+    scope_id: int | None = Query(
+        default=None,
+        description="Project this run belongs to. Omitted means the default project.",
+    ),
 ) -> RunDetail:
     """Assemble, persist and queue. The assembly happens before the row is written.
 
     A run that could never have been assembled is not a failed run, it is a rejected
     request: writing it down would fill the history with rows that never had inputs.
     """
+    scope = await resolve_write_scope(db, scope_id)
     assembly = await _assemble(db, payload)
 
     run = SimulationRun(
+        scope_id=scope.id,
         name=payload.name or "",
         status="queued",
         scenario=payload.scenario,

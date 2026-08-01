@@ -269,3 +269,54 @@ level. Design settled this session:
   (small-multiples risk matrix) and cross-project dedup on rollup (cheap name/RBS-code
   clustering, a preview of P5's dedup work and often the actual discovery mechanism for a
   program-native risk). See `BACKLOG.md` → Surfaced 2026-08-01.
+
+### 2026-08-01 — P4 4.1–4.3 shipped (joint cost-schedule confidence, SSI); 4.7 backend shipped (scope hierarchy schema)
+
+**4.1–4.3.** `app/sim/joint.py` reads cost and delay together: exact frontiers as level
+sets of the empirical joint CDF (order-statistic walk, no copula, no fitted bivariate),
+the balanced point, and the marginal-pair trap — quoting a P80 cost beside a P80 date
+is typically a ~65–75% joint claim, the two-dimensional sibling of the additive-percentile
+invariant. No new `RunConfig` field: frontier targets come from the run's own
+`percentiles` grid, so the request fingerprint and every stored run's hash are untouched.
+`ENGINE_VERSION` → `1.1.0` (no number moved; the bump only lets a stored run be told apart
+from one with nothing joint to report). The schedule sensitivity index
+(`schedule_sensitivity_index` — CI × duration-sd / project-finish-sd, the Primavera Risk
+Analysis metric) sits beside cruciality on `ActivityCriticality`; the two agree exactly
+when durations are independent and diverge exactly under a shared risk driver, because
+correlation credits each driven activity with the whole of the shared cause's effect while
+the spread ratio counts only that activity's own share. Truncation now retains the union
+of the top-N by both. Frontend: `JointScatter.tsx` (cloud + frontier + shaded box, target
+chips), `Tornado` gained `metric="delay"` (rank correlation with project delay — ranking
+only, does not decompose), `CriticalityTable` is now sortable with the SSI column.
+
+**4.7 (backend only — 4.8's scope tree UI and scoped routing not started).** One
+`scope_node` table for portfolio/program/project, containment enforced in
+`services/scope.py` (`assert_placement` on every write, `assert_move_is_acyclic` on
+every move) rather than in the schema. `risk`, `schedule_file`, `simulation_run` each
+gained a NOT NULL `scope_id`. Migration `0014` backfills every existing row into one
+project, named after the loaded schedule where exactly one exists. Two register
+constraints moved from global to per-scope (`uq_risk_scope_subcategory_seq`,
+`uq_risk_scope_code`) — every project's register now starts at 0001, and schedule-file
+dedup is per scope so an IMS shared across projects doesn't get silently reassigned.
+`resolve_write_scope` get-or-creates the default project, so a fresh install never has to
+name a scope before adding a risk. **Reads are still unfiltered** — nothing in 4.7 stops
+rows from one project appearing in another's register; that's 4.8.
+
+Two gotchas worth carrying forward:
+
+- **`alembic upgrade head` against SQLite has never worked, from migration 0001** —
+  `CREATE EXTENSION IF NOT EXISTS vector` is unconditional and Postgres-only. "SQLite
+  end-to-end run" in the standing verification method means executing one migration's
+  `upgrade()` against a hand-built pre-migration SQLite schema (the pattern
+  `test_schedule_migration.py` established for 0009, extended in `test_scope_migration.py`
+  for 0014 with real row insertion and backfill assertions, not just a DDL diff), not the
+  literal CLI against a bare SQLite file. The offline Postgres SQL render
+  (`MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, ...})`) is
+  the other half — between the two, every statement in a migration is either executed or
+  rendered, never neither.
+- **`from __future__ import annotations` breaks `status_code=204` routes.** Confirmed
+  again in `app/api/routes/scopes.py` (first hit was the FastAPI-pin gotcha above, a
+  different mechanism — that one only shows up unpinned). Under postponed evaluation
+  FastAPI reads a `-> None` return annotation as a response body and refuses to register
+  the route at all, so this repo's route modules don't use the future import; a comment in
+  `scopes.py` exists so nobody adds it back.

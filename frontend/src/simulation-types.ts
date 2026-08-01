@@ -172,7 +172,52 @@ export interface ActivityCriticality {
   mean_total_float_days: number;
   duration_sensitivity?: number | null;
   cruciality: number;
+  duration_sd_days: number;
+  /**
+   * Criticality index times the ratio of this activity's duration spread to the
+   * project's. The Primavera Risk Analysis metric; scale-aware where cruciality is
+   * correlation-based, and they part company wherever a shared risk driver correlates
+   * durations.
+   */
+  schedule_sensitivity_index: number;
   is_inserted: boolean;
+}
+
+/* ------------------------------------------------------------------------- *
+ * joint cost and schedule
+ * ------------------------------------------------------------------------- */
+
+export interface JointPoint {
+  delay_days: number;
+  finish_day: number;
+  total_cost: number;
+  /** Marginal percentile of this delay, 0-100. */
+  delay_p: number;
+  /** Marginal percentile of this cost, 0-100. */
+  cost_p: number;
+}
+
+export interface JointFrontier {
+  target: number;
+  points: JointPoint[];
+  /** Where cost and date carry equal marginal stringency. */
+  balanced?: JointPoint | null;
+}
+
+export interface JointConfidence {
+  iterations: number;
+  frontiers: JointFrontier[];
+  marginal_pair_target: number;
+  marginal_cost: number;
+  marginal_delay_days: number;
+  marginal_finish_day: number;
+  /** What quoting the two marginals side by side is actually worth, 0..1. */
+  joint_at_marginal_pair: number;
+  cost_delay_correlation: number;
+  burn_rate_coupled: boolean;
+  /** `[delay_days, total_cost]` per retained iteration, thinned by a fixed stride. */
+  scatter: [number, number][];
+  scatter_stride: number;
 }
 
 export interface CorrelationReport {
@@ -197,6 +242,8 @@ export interface SimulationResult {
   risk_sensitivity: RiskSensitivity[];
   schedule_variance_share: number;
   activity_criticality: ActivityCriticality[];
+  /** Null on a cost-only run, and on a run too short to place a joint quantile in. */
+  joint?: JointConfidence | null;
   correlation: CorrelationReport;
   warnings: string[];
 }

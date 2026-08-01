@@ -16,6 +16,7 @@ import type {
   VersionOption,
 } from "../simulation-types";
 import CriticalityTable from "../components/sim/CriticalityTable";
+import JointScatter, { JointVerdict } from "../components/sim/JointScatter";
 import SCurve from "../components/sim/SCurve";
 import Tornado from "../components/sim/Tornado";
 import { fmtDays, fmtDuration, fmtMoney, fmtPercent } from "../components/sim/format";
@@ -566,8 +567,39 @@ function RunResult({ run }: { run: RunDetail }) {
         </>
       )}
 
+      {result.delay_days && (
+        <>
+          <h3 className="sim-h">Cost and date together</h3>
+          {result.joint ? (
+            <>
+              <JointVerdict joint={result.joint} />
+              <JointScatter joint={result.joint} />
+            </>
+          ) : result.joint === null ? (
+            <p className="sim-note">
+              This run is too short to place a joint quantile in — a frontier drawn from a
+              couple of hundred iterations looks exactly like one drawn from ten thousand, so
+              none is drawn. Raise the iteration count to read the cost and the date together.
+            </p>
+          ) : (
+            <p className="sim-note">
+              This run predates the joint view (engine {result.manifest.engine_version}), so
+              it carries no cost-and-date pairing. Re-run it — same seed and inputs reproduce
+              the same numbers — to read the two together.
+            </p>
+          )}
+        </>
+      )}
+
       <h3 className="sim-h">What drives the answer</h3>
       <Tornado rows={result.risk_sensitivity} />
+
+      {result.delay_days && (
+        <>
+          <h3 className="sim-h">What drives the date</h3>
+          <Tornado rows={result.risk_sensitivity} metric="delay" />
+        </>
+      )}
 
       <h3 className="sim-h">Activity criticality</h3>
       <CriticalityTable rows={result.activity_criticality} />

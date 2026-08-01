@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.models.mapping import RiskActivityMapping
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.models.scope import ScopeNode
 from app.models.schedule import (
     ScheduleActivity,
     ScheduleFile,
@@ -69,8 +70,12 @@ async def env(tmp_path):
         db.add(sub)
         await db.flush()
 
+        db.add(ScopeNode(id=1, kind="project", name="Test project", created_by="test"))
+        await db.flush()
+
         risks = [
             Risk(
+                scope_id=1,
                 subcategory_id=sub.id,
                 seq=i,
                 risk_code=f"REG-010-000{i}",
@@ -85,6 +90,7 @@ async def env(tmp_path):
         db.add_all(risks)
 
         file_row = ScheduleFile(
+            scope_id=1,
             filename="p.xer",
             suffix=".xer",
             content=b"x",

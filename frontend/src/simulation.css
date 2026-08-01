@@ -649,3 +649,142 @@
     opacity: 0.55;
   }
 }
+
+/* --- joint cost and schedule (JCL) ------------------------------------------------ */
+
+.sim-jcl-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.sim-jcl-controls-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.sim-chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sim-chip:hover {
+  border-color: var(--primary);
+  color: inherit;
+}
+
+.sim-chip.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.sim-chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* The cloud is one path of twelve hundred marks. Low alpha so density reads as density
+   rather than as a solid block, and no stroke: at two units across a stroke doubles the
+   apparent size of every point. */
+.sim-jcl-cloud {
+  fill: var(--sim-sched);
+  fill-opacity: 0.28;
+  stroke: none;
+}
+
+.sim-jcl-box {
+  fill: var(--sim-warn);
+  fill-opacity: 0.1;
+  stroke: var(--sim-warn);
+  stroke-opacity: 0.5;
+  stroke-dasharray: 4 3;
+}
+
+.sim-jcl-box-text {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--sim-warn);
+}
+
+.sim-jcl-frontier {
+  fill: none;
+  stroke: var(--sim-cost);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.sim-jcl-balanced {
+  fill: var(--sim-cost);
+  stroke: var(--card);
+  stroke-width: 2;
+}
+
+/* --- criticality table ------------------------------------------------------------ */
+
+/* Sort control inside a header cell. It has to look like the header it replaces, not
+   like a button sitting in one. */
+.sim-sort {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.sim-sort:hover {
+  border-bottom-color: var(--border);
+}
+
+.sim-sort.active {
+  border-bottom-color: var(--primary);
+}
+
+.sim-sort:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Criticality reads as a proportion, so it is drawn as one. The bar sits behind the
+   number rather than in its own column: a hundred and eighty activities is a lot of
+   table, and a column that only ever holds a bar earns nothing. */
+.sim-ci {
+  position: relative;
+  display: inline-block;
+  min-width: 62px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sim-ci-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--sim-sched);
+  opacity: 0.16;
+}
+
+.sim-ci-text {
+  position: relative;
+}
+
+/* The joint verdict when the marginal pair holds up. Same block as `.sim-reconcile`
+   without the accent: it is being read as confirmation, not as a correction. */
+.sim-jcl-verdict {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}

@@ -6,6 +6,7 @@ from app.models.matrix import MatrixConfig  # noqa: F401
 from app.models.mitigation import MitigationAction  # noqa: F401
 from app.models.rbs import RbsCategory, RbsSubcategory  # noqa: F401
 from app.models.risk import Risk  # noqa: F401
+from app.models.scope import ScopeNode  # noqa: F401
 from app.models.schedule import (  # noqa: F401
     DcmaRun,
     ScheduleActivity,

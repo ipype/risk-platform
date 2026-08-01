@@ -51,22 +51,34 @@ MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 
 
 async def store_file(
-    db: AsyncSession, *, filename: str, content: bytes, uploaded_by: str = "Unknown"
+    db: AsyncSession,
+    *,
+    filename: str,
+    content: bytes,
+    uploaded_by: str = "Unknown",
+    scope_id: int,
 ) -> tuple[ScheduleFile, bool]:
-    """Store an upload, deduplicating on content hash.
+    """Store an upload, deduplicating on content hash *within its scope*.
 
     Returns ``(row, created)``. Re-uploading identical bytes is a no-op that returns the
     original row — the same export mailed round twice should not become two sources of
     truth.
+
+    The dedup is per scope and that matters: an integrated master schedule legitimately
+    belongs to more than one project, and a global hash match would hand the second
+    project a file owned by the first, taking its register's schedule with it.
     """
     digest = hashlib.sha256(content).hexdigest()
     existing = await db.scalar(
-        select(ScheduleFile).where(ScheduleFile.content_sha256 == digest)
+        select(ScheduleFile).where(
+            ScheduleFile.content_sha256 == digest, ScheduleFile.scope_id == scope_id
+        )
     )
     if existing is not None:
         return existing, False
 
     row = ScheduleFile(
+        scope_id=scope_id,
         filename=filename,
         suffix=Path(filename).suffix.lower(),
         content=content,

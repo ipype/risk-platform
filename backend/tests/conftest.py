@@ -32,6 +32,11 @@ from app.db.session import get_db
 from app.db import base as _all_models  # noqa: F401  (registers every table)
 from app.models import mapping as mapping_models
 from app.models import schedule as schedule_models
+from app.models.scope import ScopeNode
+
+#: Seeded by ``session_factory`` before each test runs; every direct model construction
+#: in this file's tests uses it rather than repeating the seed.
+DEFAULT_SCOPE_ID = 1
 
 SCHEDULE_TABLES = [
     schedule_models.ScheduleFile.__table__,
@@ -43,6 +48,7 @@ SCHEDULE_TABLES = [
     schedule_models.DcmaRun.__table__,
     mapping_models.RiskActivityMapping.__table__,
     mapping_models.MappingHistory.__table__,
+    ScopeNode.__table__,
 ]
 
 
@@ -52,7 +58,16 @@ async def session_factory():
     engine = create_async_engine("sqlite+aiosqlite://", future=True)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=SCHEDULE_TABLES)
-    yield async_sessionmaker(engine, expire_on_commit=False)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    # Every schedule file belongs to a project (migration 0014). Seeded once here rather
+    # than through the API's get-or-create so DEFAULT_SCOPE_ID is stable across every test
+    # in the file, not dependent on call order.
+    async with sessionmaker() as session:
+        session.add(
+            ScopeNode(id=DEFAULT_SCOPE_ID, kind="project", name="Test project", created_by="test")
+        )
+        await session.commit()
+    yield sessionmaker
     await engine.dispose()
 
 

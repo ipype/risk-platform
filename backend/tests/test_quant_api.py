@@ -20,6 +20,7 @@ from app.models.history import RiskHistory
 from app.models.quant import RiskDriver, RiskQuantEstimate  # noqa: F401
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.models.scope import ScopeNode
 
 
 @pytest_asyncio.fixture
@@ -36,10 +37,27 @@ async def client():
             RbsSubcategory(id=1, category_id=1, code="DES", name="Design and engineering")
         )
         session.add(
-            Risk(id=1, subcategory_id=1, seq=1, risk_code="TEC-DES-0001", title="Design growth")
+            ScopeNode(id=1, kind="project", name="Test project", created_by="test")
         )
         session.add(
-            Risk(id=2, subcategory_id=1, seq=2, risk_code="TEC-DES-0002", title="Late permits")
+            Risk(
+                id=1,
+                scope_id=1,
+                subcategory_id=1,
+                seq=1,
+                risk_code="TEC-DES-0001",
+                title="Design growth",
+            )
+        )
+        session.add(
+            Risk(
+                id=2,
+                scope_id=1,
+                subcategory_id=1,
+                seq=2,
+                risk_code="TEC-DES-0002",
+                title="Late permits",
+            )
         )
         await session.commit()
 

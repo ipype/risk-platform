@@ -74,11 +74,6 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
 - `claude/ref/schedule.md` is at roughly 200 lines as of its first day. If the Gantt notes
   and the mapping notes both keep growing, split again on that seam rather than letting one
   file become the expensive one to open.
-- **4.7's backfill migration touches existing tables** (`register`, `schedules`,
-  `simulation_run`, and anything else that gains the scope foreign key), not just new ones.
-  Needs the offline Alembic SQL check plus a genuinely separate `AsyncSession` round-trip
-  test per the standing verification method — the SQLite `ondelete="CASCADE"` gotcha
-  already on file (`REFERENCE.md`) applies directly to a hierarchy delete path.
 
 ## Surfaced 2026-07-30
 
@@ -150,3 +145,31 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
   the P5 dedup work. Often *is* the discovery mechanism for a program-native risk: four
   projects independently carrying "permit delay" usually means it should be promoted, not
   left duplicated. Not scheduled — no WBS line yet.
+
+## Surfaced 2026-08-01 (JCL/SSI and scope hierarchy session)
+
+- **Reads are unscoped until 4.8 ships.** Every write (`create_risk`, `store_file`,
+  `create_run`) now resolves a project via `resolve_write_scope`, but every list/read route
+  is unfiltered — a second project's risks, files and runs are indistinguishable from the
+  first's in every list endpoint that exists today. Not a bug in what shipped (4.7 was
+  schema-only by design), but a real window: creating a second scope before 4.8 lands mixes
+  registers in the UI with no way to tell them apart. Prioritise 4.8 accordingly.
+- **The frontend test gap grew again.** `JointScatter.tsx` (new) carries real arithmetic —
+  bounds computation, the frontier polyline, path-string construction for a 1,200-point
+  cloud — validated only by `tsc` and a visual build check, same as `Tornado` and
+  `CriticalityTable` before it. Fourth delivery in a row landing untested frontend logic.
+  See `REFERENCE.md` 2026-07-30 and 2026-08-01.
+- **`result_json` payload size is growing.** ~84 kB at 10k iterations with the joint scatter
+  included, roughly double pre-JCL. Fine for a JSONB column and a per-run fetch; worth
+  revisiting if P6's report export ends up embedding several runs' results at once.
+- **Scope delete cascade is untested under Postgres.** `ScopeNode.parent_id` is
+  `ondelete="RESTRICT"`, and the API's own refusal (children/rows in the way) makes the
+  database-level behaviour mostly unreachable in practice — but "mostly" is doing work
+  there, and the existing SQLite `ondelete="CASCADE"` gotcha (foreign keys off by default)
+  means the restrict is unverified under the engine that actually enforces it. Add to
+  `test_schedule_postgres_regression.py`'s sibling once a scope-focused Postgres regression
+  file exists, or fold into that one.
+- **`ScopeUpdate` has no code-uniqueness check on rename**, only on create. Renaming a
+  scope's `code` to one already in use hits the same `IntegrityError` path `create_scope`
+  now guards against. Same fix, not yet applied — low priority until the UI exposes
+  renaming a code at all.

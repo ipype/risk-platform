@@ -5,42 +5,47 @@ In-flight only. Target under 100 lines. Anything not being worked on right now g
 
 ## Now
 
-- [ ] Apply and commit `p4-monte-carlo-ui.zip` (30 files, folder-swap). Three things this
-      delivery needs that a plain apply does not do:
-      1. **A migration.** `0013_simulation_runs` creates `simulation_run`. `make migrate`.
-      2. **An image rebuild.** `requirements.txt` gained `celery==5.5.3` and the `worker`
-         service is new: `docker compose up -d --build api worker`. Without the rebuild the
-         API still starts — `sim_dispatch` holds the celery import inside the function — but
-         the worker crash-loops and every run sits at `queued` forever.
-      3. **A worker log check.** `docker compose logs worker --tail=20`. A dead API and a
-         queued-forever run look identical from the UI.
+- [ ] Apply and commit `p4-monte-carlo-ui.zip` (30 files) — still pending from before this
+      session, unchanged. Same three steps as before: migration (`make migrate`), image
+      rebuild (`docker compose up -d --build api worker`), worker log check.
+- [ ] Apply and commit `p4-jcl-sensitivity.zip` (12 files, folder-swap). No migration, no
+      image rebuild — `result_json` already stores the result whole. Ships 4.1 (joint
+      cost-schedule confidence / JCL), 4.2 (schedule sensitivity index), 4.3 (delay-ranked
+      tornado). `ENGINE_VERSION` → `1.1.0`.
+- [ ] Apply and commit `p4-scope-hierarchy.zip` (25 files, folder-swap). **Independent of
+      the zip above — no file overlap, either order is fine — but needs a migration**:
+      `0014_scope_hierarchy` creates `scope_node` and backfills `risk` /
+      `schedule_file` / `simulation_run` into one default project. `make migrate`. No image
+      rebuild. Ships 4.7's backend (schema, containment rules, CRUD API). **4.8 — the scope
+      tree sidebar and scoped routing — is not started; reads are still unfiltered.**
 - [ ] Apply and commit the doc close from this session (this file, `BACKLOG.md`,
-      `REFERENCE.md`, `ref/simulation.md`, `ref/schedule.md`, `CLAUDE.md`, and the new
-      `sessions/` entry). Safe to combine with the delivery above in one commit.
-- [ ] **Next build target: 4.7 then 4.8.** Hierarchy schema + backfill migration
-      (portfolio → program → project, strict tree, one parent per node — no project shared
-      across programs), then the scope tree sidebar with scoped routing across register,
-      mapping, sim, and reports. Both pulled forward from P8 to land before any P5 table
-      exists, so the AI agent's corpus/suggestion/workshop tables get a scope foreign key at
-      creation instead of a retrofit. Design detail in `REFERENCE.md` 2026-08-01.
+      `REFERENCE.md`, and the new `sessions/` entry). Safe to combine with either delivery
+      above in one commit.
+- [ ] **Next build target: 4.8.** Scope tree sidebar + scoped routing across register,
+      mapping, sim, and reports, using the schema `p4-scope-hierarchy.zip` lands. Until
+      this ships, every read in the platform is unfiltered by scope even though writes are
+      scoped — a real gap, not just an unfinished feature.
 
 ## Notes
 
-- **P4 is complete for what it covered when it shipped** — persistence, the Celery worker,
-  the API surface and the whole simulation UI, verified from a pristine clone: 581 passed /
-  3 skipped, `tsc` and `vite build` clean. P4 has since grown two more tasks (4.7, 4.8, see
-  above) that were not part of that delivery and are not yet started.
-- **The engine's schedule axis is now elapsed days, not working days.** This changes the
-  meaning of a number people quote. Read `REFERENCE.md` 2026-08-01 before touching anything
-  that reads or reports a duration, and `ref/simulation.md` before editing the engine.
-- Verification for this repo runs against a **local clone** of the real tree, finishing with
-  the delivered zip unpacked over a *fresh* clone. Check `git status` on that clone before
-  trusting it — see `REFERENCE.md` 2026-08-01.
-- Architecture questions: **tenancy model is now resolved** — strict portfolio → program →
-  project tree, `REFERENCE.md` 2026-08-01. Still open: embedding provider, deployment
-  target — see `BACKLOG.md` → Blocked. Gantt component decided 2026-07-30 (in-house);
-  charts decided 2026-08-01 (hand-rolled SVG, no Recharts); `.mpp` scope stays parked,
-  `.xer`-only.
-- Sam holds the current copy of `Risk_Platform_Build_Schedule.xlsx` locally — it is not
-  tracked in the repo. Total effort now reads 551h (was 465h) after the 2026-08-01
-  hierarchy/scoping resequence; see `claude/sessions/2026-08-01-hierarchy-scoping-and-schedule-resequence.md`.
+- **P4 is complete through 4.3.** 4.1 (JCL), 4.2 (SSI), 4.3 (delay tornado) verified from a
+  pristine clone with both pending zips applied together: 637 passed / 3 skipped, `tsc` and
+  `vite build` clean. 4.4 (mitigation module), 4.5 (re-simulation ROI), 4.6 (first
+  structured report) not started.
+- **4.7 backend is done; 4.7's UI and 4.8 are not.** Scope hierarchy schema, backfill
+  migration, and CRUD API exist and are tested end-to-end (migration executed against a
+  real pre-0014 SQLite database, not just diffed). No frontend scope picker anywhere yet —
+  every write defaults silently to the one auto-created project, which is correct behaviour
+  for a single-project install and invisible scope-mixing risk the moment a second project
+  exists before 4.8 ships.
+- **The engine's schedule axis is elapsed days, not working days.** Read `REFERENCE.md`
+  2026-08-01 before touching anything that reads or reports a duration, and
+  `ref/simulation.md` before editing the engine.
+- Verification for this repo runs against a **local clone** of the real tree, finishing
+  with the delivered zip(s) unpacked over a *fresh* clone. Check `git status` on that clone
+  before trusting it.
+- `alembic upgrade head` against SQLite has never worked (Postgres-only `CREATE EXTENSION`
+  in migration 0001) — see `REFERENCE.md` 2026-08-01 for what "SQLite end-to-end run" means
+  in practice for this repo.
+- Sam holds the current copy of `Risk_Platform_Build_Schedule.xlsx` locally — not tracked
+  in the repo.

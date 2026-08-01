@@ -19,6 +19,7 @@ from app.api.routes import (
     rbs,
     risks,
     schedules,
+    scopes,
     simulations,
 )
 
@@ -48,6 +49,7 @@ if settings.cors_origins:
 register_exception_handlers(app)
 
 app.include_router(health.router)
+app.include_router(scopes.router)
 app.include_router(rbs.router)
 app.include_router(risks.router)
 app.include_router(matrix.router)

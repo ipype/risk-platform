@@ -5,6 +5,12 @@ They diverge silently: everything passes against a database built by
 ``Base.metadata.create_all`` in tests, then breaks against one built by Alembic in
 production. This test executes the migration module with a recording stub in place of
 ``op`` and diffs the result against the models.
+
+The diff is against 0009's shape, not today's. A column a later migration adds — 0014's
+``scope_id``, most recently — is real on the model and absent from 0009 on purpose, so it
+is excluded here rather than failing a test that is checking the wrong migration for it.
+Each entry names the migration responsible, so removing a table from this file means
+finding and updating this list too.
 """
 
 from __future__ import annotations
@@ -20,6 +26,11 @@ from app.models import schedule as schedule_models
 MIGRATION = (
     Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0009_schedule.py"
 )
+
+#: column -> migration that introduced it, for every model column 0009 does not know about.
+ADDED_AFTER_0009: dict[str, str] = {
+    "scope_id": "0014",
+}
 
 MODEL_TABLES = {
     model.__tablename__: model.__table__
@@ -98,7 +109,11 @@ def test_downgrade_removes_everything_upgrade_added(migration):
 @pytest.mark.parametrize("table_name", sorted(MODEL_TABLES))
 def test_columns_match_the_model(migration, table_name):
     migration_columns = {c.name: c for c in migration.tables[table_name]}
-    model_columns = {c.name: c for c in MODEL_TABLES[table_name].columns}
+    model_columns = {
+        c.name: c
+        for c in MODEL_TABLES[table_name].columns
+        if c.name not in ADDED_AFTER_0009
+    }
     assert set(migration_columns) == set(model_columns), (
         f"{table_name}: migration and model disagree on which columns exist"
     )
@@ -107,7 +122,11 @@ def test_columns_match_the_model(migration, table_name):
 @pytest.mark.parametrize("table_name", sorted(MODEL_TABLES))
 def test_column_types_and_nullability_match_the_model(migration, table_name):
     migration_columns = {c.name: c for c in migration.tables[table_name]}
-    model_columns = {c.name: c for c in MODEL_TABLES[table_name].columns}
+    model_columns = {
+        c.name: c
+        for c in MODEL_TABLES[table_name].columns
+        if c.name not in ADDED_AFTER_0009
+    }
 
     mismatches = []
     for name, model_column in model_columns.items():

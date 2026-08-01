@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import DEFAULT_SCOPE_ID
 from app.schedule.parsers import parse_schedule
 from app.services.schedule_ingest import create_version, hydrate, store_file
 from tests.schedule_fixtures import simple_xer
@@ -244,7 +245,7 @@ class TestRoundTrip:
         """
         data = simple_xer()
         parsed = parse_schedule(data, "pipeline.xer")
-        file_row, _ = await store_file(db, filename="pipeline.xer", content=data)
+        file_row, _ = await store_file(db, filename="pipeline.xer", content=data, scope_id=DEFAULT_SCOPE_ID)
         version = await create_version(db, file=file_row, schedule=parsed)
         await db.commit()
 
@@ -270,7 +271,7 @@ class TestRoundTrip:
 
         data = simple_xer()
         parsed = parse_schedule(data, "pipeline.xer")
-        file_row, _ = await store_file(db, filename="pipeline.xer", content=data)
+        file_row, _ = await store_file(db, filename="pipeline.xer", content=data, scope_id=DEFAULT_SCOPE_ID)
         version = await create_version(db, file=file_row, schedule=parsed)
         await db.commit()
 
@@ -285,8 +286,8 @@ class TestRoundTrip:
 class TestFileStore:
     async def test_dedupe_returns_the_original_row(self, db):
         data = simple_xer()
-        first, created_first = await store_file(db, filename="a.xer", content=data)
-        second, created_second = await store_file(db, filename="b.xer", content=data)
+        first, created_first = await store_file(db, filename="a.xer", content=data, scope_id=DEFAULT_SCOPE_ID)
+        second, created_second = await store_file(db, filename="b.xer", content=data, scope_id=DEFAULT_SCOPE_ID)
         assert created_first is True
         assert created_second is False
         assert first.id == second.id
@@ -294,9 +295,9 @@ class TestFileStore:
         assert second.filename == "a.xer"
 
     async def test_different_bytes_are_different_files(self, db):
-        a, _ = await store_file(db, filename="a.xer", content=simple_xer())
+        a, _ = await store_file(db, filename="a.xer", content=simple_xer(), scope_id=DEFAULT_SCOPE_ID)
         b, _ = await store_file(
-            db, filename="b.xer", content=simple_xer(extra_projects=True)
+            db, filename="b.xer", content=simple_xer(extra_projects=True), scope_id=DEFAULT_SCOPE_ID
         )
         assert a.id != b.id
         assert a.content_sha256 != b.content_sha256

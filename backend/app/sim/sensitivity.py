@@ -21,9 +21,19 @@ the project finish, accumulated as running sums so that a five-thousand-activity
 never has to hold every sampled duration at once. Cruciality is the product of the two,
 which is what separates "this activity is always critical but never varies" from "this
 activity decides the date".
+
+The schedule sensitivity index is the same idea with scale put back in: criticality index
+times the ratio of the activity's duration spread to the project's. It is the metric
+Primavera Risk Analysis reports and the one a reviewer coming from that tool will ask for
+by name, and it disagrees with cruciality precisely where scale matters — a two-day
+activity whose duration correlates perfectly with the finish is crucial and barely
+sensitive, because its entire range is two days. Both are carried. Ranking on either alone
+loses a real reading.
 """
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 from numpy.typing import NDArray
@@ -84,6 +94,16 @@ class ActivityCriticality(BaseModel):
     #: Criticality index times absolute duration sensitivity. Hulett's cruciality: being
     #: on the critical path matters only if the duration also moves.
     cruciality: float = 0.0
+    #: Standard deviation of this activity's sampled duration. Zero for a deterministic
+    #: activity, which is a measured zero rather than a missing one.
+    duration_sd_days: float = 0.0
+    #: Schedule sensitivity index, the Primavera Risk Analysis definition: criticality
+    #: index times the ratio of this activity's duration spread to the project finish
+    #: spread. Scale-aware where cruciality is correlation-based, so the two disagree
+    #: exactly where it matters — a short activity perfectly correlated with the finish
+    #: ranks top on cruciality and low on SSI, because moving it by its whole range moves
+    #: the date by very little. Both are reported; neither is a substitute for the other.
+    schedule_sensitivity_index: float = 0.0
     is_inserted: bool = False
 
 
@@ -178,6 +198,20 @@ class DurationAccumulator:
         self.sum_df += d.T @ f
         self.sum_f += float(f.sum())
         self.sum_f2 += float((f * f).sum())
+
+    def spreads(self) -> tuple[NDArray[np.float64], float]:
+        """Duration standard deviation per activity, and the project finish's.
+
+        Population moments, taken about the same offsets as everything else here. They
+        differ from ``SeriesSummary.sd`` — which uses ``ddof=1`` — by one part in the
+        iteration count, far below anything the ratio in an SSI is read to.
+        """
+        n = float(self.n)
+        if n < 2:
+            return np.zeros(self.sum_d.size, dtype=np.float64), 0.0
+        vd = self.sum_d2 / n - (self.sum_d / n) ** 2
+        vf = self.sum_f2 / n - (self.sum_f / n) ** 2
+        return np.sqrt(np.maximum(vd, 0.0)), math.sqrt(max(vf, 0.0))
 
     def correlation(self) -> NDArray[np.float64]:
         """Pearson correlation per activity. NaN where the duration never varied."""

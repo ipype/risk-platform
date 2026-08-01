@@ -27,6 +27,7 @@ from app.models.mapping import RiskActivityMapping
 from app.models.quant import RiskDriver, RiskDriverLink, RiskQuantEstimate
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.models.scope import ScopeNode
 from app.models.schedule import (
     DcmaRun,
     ScheduleActivity,
@@ -57,11 +58,36 @@ def _activity(source_id: str, code: str, days: float, *, kind: str = "task") -> 
 
 
 async def _seed(session) -> None:
+    # Every authored row belongs to a project (migration 0014). One scope, seeded
+    # explicitly rather than left to the API's get-or-create, so these tests keep
+    # asserting about rows they put there themselves.
+    session.add(ScopeNode(id=1, kind="project", name="Test project", created_by="test"))
     session.add(RbsCategory(id=1, code="TEC", name="Technical"))
     session.add(RbsSubcategory(id=1, category_id=1, code="DES", name="Design"))
-    session.add(Risk(id=1, subcategory_id=1, seq=1, risk_code="TEC-DES-0001", title="Scope growth"))
-    session.add(Risk(id=2, subcategory_id=1, seq=2, risk_code="TEC-DES-0002", title="Ground conditions"))
-    session.add(Risk(id=3, subcategory_id=1, seq=3, risk_code="TEC-DES-0003", title="Half-elicited"))
+    session.add(Risk(
+            id=1,
+            scope_id=1,
+            subcategory_id=1,
+            seq=1,
+            risk_code="TEC-DES-0001",
+            title="Scope growth",
+        ))
+    session.add(Risk(
+            id=2,
+            scope_id=1,
+            subcategory_id=1,
+            seq=2,
+            risk_code="TEC-DES-0002",
+            title="Ground conditions",
+        ))
+    session.add(Risk(
+            id=3,
+            scope_id=1,
+            subcategory_id=1,
+            seq=3,
+            risk_code="TEC-DES-0003",
+            title="Half-elicited",
+        ))
 
     # cost only
     session.add(
@@ -110,6 +136,7 @@ async def _seed(session) -> None:
     session.add(
         ScheduleFile(
             id=1,
+            scope_id=1,
             filename="test.xer",
             suffix=".xer",
             content=b"x",

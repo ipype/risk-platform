@@ -41,6 +41,7 @@ from app.sim.inputs import (
     ScheduleInput,
     SimulationRequest,
 )
+from app.sim.joint import JointConfidence, JointFrontier, JointPoint, joint_confidence
 from app.sim.network import CompiledNetwork
 from app.sim.results import (
     ContingencyView,
@@ -63,6 +64,9 @@ __all__ = [
     "DeterministicView",
     "DistributionSpec",
     "DriverSpec",
+    "JointConfidence",
+    "JointFrontier",
+    "JointPoint",
     "NetworkCycle",
     "Outcome",
     "PairCorrelation",
@@ -82,6 +86,7 @@ __all__ = [
     "SimulationInputInvalid",
     "SimulationRequest",
     "SimulationResult",
+    "joint_confidence",
     "run",
     "spec_from_moments",
 ]
