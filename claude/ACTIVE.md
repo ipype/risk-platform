@@ -5,28 +5,30 @@ In-flight only. Target under 100 lines. Anything not being worked on right now g
 
 ## Now
 
-- [ ] Apply and commit `schedule-delete-and-gantt-links.zip` (17 files, folder-swap) and
-      push. **No migration** — no schema changed; the delete routes use existing tables and
-      the Gantt links come from `schedule_relationship` rows already being stored. Verified
-      by unpacking over a fresh clone: 283 passed / 3 skipped, `tsc` and `vite build`
-      clean. Nothing else in flight depends on it landing first.
-- [ ] Apply and commit the doc close from this session: `claude/ref/schedule.md` is new and
-      `CLAUDE.md` gained the map row pointing at it. Safe to combine with the delivery
-      above in one commit.
+- [ ] Apply and commit `p4-monte-carlo-ui.zip` (30 files, folder-swap). Three things this
+      delivery needs that a plain apply does not do:
+      1. **A migration.** `0013_simulation_runs` creates `simulation_run`. `make migrate`.
+      2. **An image rebuild.** `requirements.txt` gained `celery==5.5.3` and the `worker`
+         service is new: `docker compose up -d --build api worker`. Without the rebuild the
+         API still starts — `sim_dispatch` holds the celery import inside the function — but
+         the worker crash-loops and every run sits at `queued` forever.
+      3. **A worker log check.** `docker compose logs worker --tail=20`. A dead API and a
+         queued-forever run look identical from the UI.
+- [ ] Apply and commit the doc close from this session (this file, `BACKLOG.md`,
+      `REFERENCE.md`, `ref/simulation.md`, `ref/schedule.md`, `CLAUDE.md`, and the new
+      `sessions/` entry). Safe to combine with the delivery above in one commit.
 
 ## Notes
 
-- **P2 is complete except the parked `.mpp` work.** `2.2` `.xer` parse, `2.4` store +
-  Gantt render, `2.5` DCMA gate and `2.6` mapping UI have all shipped, plus schedule
-  deletion and dependency arrows on top of `2.4`. `2.1` (MPXJ Java bridge) and `2.3`
-  (`.mpp` parse) are the only P2 items left and both are parked by decision.
-- **Next scheduled item is P3, the Monte Carlo engine.** Per `CLAUDE.md` it must land as
-  its own package (`backend/app/sim/` or `backend/sim/`) kept free of DB, network and
-  logging side effects. Do not fold it into `services/`. Read `claude/ref/schedule.md`
-  before touching anything that reads a parsed version, and `REFERENCE.md` for the
-  percentile and correlation invariants that govern the engine itself.
-- Verification for this repo runs against a **local clone** of the real tree, finishing
-  with the delivered zip unpacked over a *fresh* clone. See `REFERENCE.md` 2026-07-30.
+- **P4 is complete.** Persistence, the Celery worker, the API surface and the whole UI have
+  shipped and are verified from a pristine clone: 581 passed / 3 skipped, `tsc` and
+  `vite build` clean. Nothing in P4 is outstanding.
+- **The engine's schedule axis is now elapsed days, not working days.** This changes the
+  meaning of a number people quote. Read `REFERENCE.md` 2026-08-01 before touching anything
+  that reads or reports a duration, and `ref/simulation.md` before editing the engine.
+- Verification for this repo runs against a **local clone** of the real tree, finishing with
+  the delivered zip unpacked over a *fresh* clone. Check `git status` on that clone before
+  trusting it — see `REFERENCE.md` 2026-08-01.
 - Three of five original architecture questions remain open — see `BACKLOG.md` → Blocked.
-  Gantt component was decided 2026-07-30 (built in-house); `.mpp` scope stays parked,
-  `.xer`-only until further notice.
+  Gantt component decided 2026-07-30 (in-house); charts decided 2026-08-01 (hand-rolled SVG,
+  no Recharts); `.mpp` scope stays parked, `.xer`-only.

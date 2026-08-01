@@ -118,3 +118,45 @@ the API route are deliberately *not* in this delivery.
   `test_the_headline_figure_is_pinned` fixes the P80 contingency, the mean delay and the
   inputs hash of a fixed request. Moving any of them means bumping `ENGINE_VERSION` and
   writing down why, per the `SYSTEM.md` standing rule.
+
+### 2026-08-01 — persistence, the worker, the API and the UI
+
+Everything the 2026-07-31 entry deliberately left out has landed: `SimulationRun` and
+migration `0013`, the Celery app and task, `sim_assembly` / `sim_execute` / `sim_dispatch`,
+the `/simulations` routes, and the whole screen.
+
+- **The engine still has no persistence in it.** Assembly reads the register, the estimates
+  and the parse; execution writes the result. `app/sim/` imports neither, and the purity
+  test still passes.
+- **A run stores its request minus the schedule, plus `schedule_version_id`.**
+  `ScheduleVersion` is append-only and immutable, so referencing it is exact, and inlining a
+  five-thousand-activity network into every run row would be megabytes of duplication.
+  `inputs_sha256` still hashes the *full* request, so the fingerprint means what it says.
+- **`result_json` is `SimulationResult.model_dump()` unchanged.** `SeriesSummary` already
+  carries percentiles, the S-curve and histogram bins, so "summary plus percentile grid plus
+  bins" needed no custom serialisation. Per-iteration arrays are not persisted; `RunArrays`
+  stays in memory and dies with the task.
+- **Estimates are not locked on run.** Reproducibility comes from the stored request, not
+  from freezing the register — a run is replayable from its own row whatever the register
+  does afterwards. `RiskQuantEstimate.locked` remains available for publishing a run, which
+  is a different act from computing one.
+- **The API never imports Celery at module load.** `sim_dispatch` holds the import inside
+  the call, so a broker that is down costs a queued run its start rather than costing the
+  whole process its import. Verified by blocking the module from `sys.meta_path` and
+  importing `app.main` anyway.
+- **`simulation_eager` runs the engine in-request.** Tests and development only; a real
+  network at ten thousand iterations holds the connection for minutes.
+- **Redelivery is safe because `execute` refuses a run already in a terminal state**, which
+  is what lets `task_acks_late` be on.
+
+### 2026-08-01 — the axis is elapsed days, and the engine did not change
+
+See `REFERENCE.md` 2026-08-01 for the decision. What matters *here* is the boundary it
+proved: every duration in the platform changed meaning and `app/sim/` was untouched, because
+the package treats a day as a float and lets the adapter decide what a day is. Anything
+tempted to teach the engine about calendars should be resisted on that evidence.
+
+One consequence inside this package's contract: `RunManifest.calendar_id` now reports
+`"elapsed"` rather than a real calendar id. It is a basis label. A reader expecting to look
+that id up in `schedule_calendar` will not find it, which is correct — there is no single
+calendar the result is measured against, and that is the entire point.

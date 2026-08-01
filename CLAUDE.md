@@ -65,7 +65,7 @@ a dated decision plus any new invariant, `CLAUDE.md` only if a file or trigger c
 | LLM | Claude API — structured outputs + tool use for every elicitation agent |
 | Retrieval | BGE-M3 or Voyage embeddings, HNSW index, hybrid + reciprocal rank fusion |
 | Frontend | React 18, TypeScript, Vite. **Installed deps are `react` + `react-dom` only** — plain CSS files per view, hand-rolled `fetch` in `api.ts`, hand-rolled Gantt. No TanStack Query, no Tailwind, no component library. Check `package.json` before importing anything. |
-| Charts | *Planned* — Recharts / visx for S-curve, tornado, JCL scatter (P4). Not installed. |
+| Charts | Hand-rolled SVG, decided 2026-08-01 — S-curve, tornado and criticality table in `components/sim/`. No Recharts, no visx: `package.json` stays at two runtime dependencies, matching the in-house Gantt. |
 | Test | pytest + pytest-asyncio + httpx (installed). *Planned*: hypothesis, Vitest, Playwright — **no frontend test runner exists yet**. |
 | Tooling | uv, ruff, npm (not pnpm — `package-lock.json` is what's in the tree). *Planned*: mypy, eslint, prettier. |
 
@@ -79,7 +79,10 @@ backend/
 │   ├── db/               async engine, session, base declarative class, redis client
 │   ├── models/           SQLAlchemy models — import into db/base.py for Alembic autogenerate
 │   ├── api/               routers
-│   ├── schedule/          schedule ingestion (MPXJ bridge, .xer/.mpp parsing) — P2
+│   ├── schedule/          schedule ingestion + calendar arithmetic (.xer parsing) — P2
+│   ├── sim/               Monte Carlo engine — pure, no side effects — P3
+│   ├── tasks/             Celery tasks
+│   ├── worker.py          Celery app
 │   ├── services/          application services
 │   └── seed_rbs.py        RBS taxonomy seed script
 ├── alembic/               migrations (alembic.ini + versions/)
@@ -96,10 +99,16 @@ frontend/
 
 sample-schedules/            reference .xer / .mpp fixtures for parser tests
 ```
-No dedicated `sim/` package exists yet. When `P3` (Monte Carlo engine) starts, it must land
-as its own package — `backend/app/sim/` or `backend/sim/` — kept free of DB, network, and
-logging side effects per the sim-purity invariant. Do not fold it into `services/`; that
-boundary is easy to blur once real code is there and hard to unwind after.
+`backend/app/sim/` is the simulation engine and is **pure**: no DB, no network, no logging,
+no clock. It may import `app.core.errors` and nothing else from the app. Assembling a run
+from the register, the estimates and a parse belongs to `services/sim_assembly.py`;
+executing and persisting one belongs to `services/sim_execute.py`. Do not fold any of that
+into the package — the boundary held through a change to what every duration in the system
+means (`REFERENCE.md` 2026-08-01) and is worth keeping.
+
+`backend/app/worker.py` is the Celery app and `backend/app/tasks/` holds its tasks. The API
+must never import Celery at module load; `sim_dispatch` keeps the import inside the call so
+a broker that is down cannot cost the process its import.
 
 ## Build commands
 

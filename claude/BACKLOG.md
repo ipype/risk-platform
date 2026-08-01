@@ -28,7 +28,10 @@ have fired.
 
 ## Subsystems not yet designed in depth
 
-- Monte Carlo engine: LHS, Beta-PERT fitting, JCL scatter, criticality index, SSI.
+- Monte Carlo reporting gaps left by P4: JCL scatter (cost against delay per
+  iteration), schedule sensitivity index, and a histogram view. The engine already
+  returns `histogram` on every `SeriesSummary` and `RunArrays` carries the
+  per-iteration columns a JCL plot needs; neither is persisted or drawn.
 - Mitigation planning with re-simulation ROI (mitigated vs unmitigated delta).
 - Living risk register and the realized-outcome learning loop.
 - Report export: template engine, section registry, xlsx/pptx/pdf targets.
@@ -91,3 +94,36 @@ have fired.
   across 21 activities; nothing in the fixtures approaches the thousands-of-links case the
   `Selected` mode and `MAX_GANTT_LINKS` ceiling exist for. Worth generating a large
   synthetic `.xer` before trusting either.
+
+## Surfaced 2026-08-01
+
+- **Calendar conversion is a measured density, not a date walk.** Exact working-to-elapsed
+  conversion is date-dependent — ten working days before a shutdown span more elapsed time
+  than ten in June — and doing it properly means carrying dates through the CPM with
+  calendar-aware addition per activity per iteration. Not vectorisable, orders of magnitude
+  slower, for a correction usually under a percent. Revisit only if a real schedule shows a
+  long shutdown that some activities cross and others do not, which is the case where the
+  single factor is least accurate.
+- **Mandatory-finish constraints are still not enforced.** Start-on-or-after now converts to
+  `min_start_day` and the forward pass honours it. A mandatory finish would need the pass to
+  push work *earlier*, which it cannot do, so those are still only counted into a warning.
+- **No activity duration uncertainty exists in the schema.** Every activity duration reaches
+  the engine deterministic, so only discrete risk events move the network and the engine's
+  "unrealistically tight base distribution" warning fires on every schedule run. The warning
+  is correct. Fixing it means eliciting three-point durations per activity, which is a
+  subsystem, not a field.
+- **A risk driving activities on several calendars converts with the slowest.** One delay is
+  drawn per risk and shared across driven activities (the Hulett semantic), so there is one
+  conversion, and the slowest calendar is the conservative choice. Per-activity conversion
+  would need the mapping to carry its own factor and would break the shared-draw property.
+- **`flower` is in `SYSTEM.md`'s port table (5555) but not in `docker-compose.yml`.** Either
+  add the service or drop the row; a port table that lists something that does not exist is
+  worse than one that omits it.
+- **The frontend test gap got materially worse.** `SimulationView.tsx` is 631 lines, and
+  `SCurve`, `Tornado` and `CriticalityTable` all carry real arithmetic — scale mapping,
+  variance-share bar geometry, percentile marker placement — with no runner to test it. This
+  is the third delivery to land untested frontend logic. See `REFERENCE.md` 2026-07-30.
+- **Runs cannot be deleted, by design and by test.** `test_a_run_cannot_be_deleted` pins it,
+  on the append-only invariant. If a register accumulates hundreds of exploratory runs this
+  becomes a UI problem (the list is capped at 50) rather than a data one. Archive/hide before
+  delete, if it ever needs solving.

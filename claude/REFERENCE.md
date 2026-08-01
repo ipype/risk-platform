@@ -152,3 +152,68 @@ This is a stack decision, not a delivery decision, which is why it keeps getting
 adding Vitest means adding a dev dependency and a `make test` target to a repo that has
 deliberately kept `frontend/package.json` at two runtime dependencies. Recorded here so the
 cost is visible rather than rediscovered. See `BACKLOG.md` → Surfaced.
+
+### 2026-08-01 — the engine's schedule axis is elapsed days
+
+Assembly used to refuse a schedule whose activities sat on more than one calendar. That
+refusal was correct — a CPM adds durations along a path, and adding six-day-week days to
+five-day-week days produces a finish date wrong by the ratio between them with nothing
+visible to show for it — but it also blocked essentially every real P6 export, because
+multi-calendar is the norm: standard week, six-day construction, seven-day continuous, plus
+a separate calendar holding the milestones.
+
+Durations, relationship lags and working-day risk impacts are now converted to **elapsed
+days** before reaching the engine, and `ScheduleInput.calendar_id` carries the basis label
+`"elapsed"` rather than a calendar id. Elapsed days are the only unit several calendars
+agree on.
+
+**`app/sim/` did not change.** The engine already treated a day as a bare float, so "run
+the CPM in elapsed days" is achieved entirely in the adapter. This was the whole reason the
+change was affordable: sim purity held, and all 134 engine tests stayed green through a
+change to what every duration in the system means.
+
+Consequences worth knowing before editing anything nearby:
+
+- **Reported delay is in elapsed days.** It is a number people quote, so the UI says so in
+  bold above the S-curve rather than leaving it to be discovered in the code.
+- **The calendar-day refusal is gone.** A `sched_day_basis="calendar"` estimate is already
+  on the engine's axis; converting it would be the error, not the fix.
+- **`min_start_day` is finally set**, from start-on-or-after constraints, in elapsed days
+  from the data date. It had been permanently `None`.
+- **The conversion is a measured density, not a date walk** — real working days over real
+  elapsed days across the project's own window, holidays included. Exact for a weekly
+  pattern with scattered holidays; least accurate when a long shutdown sits inside the
+  window and only some activities cross it. `CalendarDensity.measured` distinguishes a
+  measurement from a weekly-pattern fallback, and the run's notes say which happened. An
+  approximation nobody can see is what this codebase refuses; one on the face of the result
+  is a modelling choice a reviewer can weigh.
+
+### 2026-08-01 — a directory that looks like a clone may not be one
+
+`git clone` into the sandbox reported success and produced a tree that was in fact the
+previous session's working directory, carrying two thousand lines of uncommitted work. A
+fresh clone cannot have modified or untracked files, and its files all carry the clone's
+timestamp; this one was dirty and its mtimes were staggered across the previous evening in
+authoring order. **Run `git status` and check one mtime before trusting a clone**, and when
+MCP and the local tree disagree about whether a file exists, MCP is describing `main` and
+the local tree is describing something else — reconcile it rather than assuming the docs
+lagged. Two signals were explained away before this was caught: a test count that did not
+match `ACTIVE.md`, and MCP listings missing files the tree had.
+
+### 2026-08-01 — diff the TypeScript against the OpenAPI schema, not just `tsc`
+
+`tsc --noEmit` proves the frontend is internally consistent and says nothing about whether
+it agrees with the API. Where a UI and its routes are written in one sitting and never run
+together, that is exactly the seam that breaks. Dump `app.openapi()` and the engine's
+Pydantic `model_fields`, and diff them field-by-field against the interfaces — thirteen
+types took one script and found the contract sound, which is knowledge `tsc` could not have
+supplied. Worth repeating on any delivery that adds both a route and its client.
+
+### 2026-08-01 — `git status --porcelain` hides untracked directories
+
+Packaging a delivery by looping over `git status --porcelain` silently omits whole
+directories: an untracked directory is reported as a single entry, so `app/tasks/` and
+`frontend/src/components/sim/` were dropped from the zip and only `cp` complaining about
+`-r` revealed it. Use `--untracked-files=all`. This is precisely the class of error the
+fresh-clone verification step exists to catch, and it would have caught it — the reason to
+write it down is that the packaging loop looked obviously correct.

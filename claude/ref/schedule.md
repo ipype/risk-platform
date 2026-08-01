@@ -213,3 +213,31 @@ Delivered as `schedule-delete-and-gantt-links.zip`. No schema change.
   its predecessor finishes needs the arrow to double back, and doing that at the row centre
   would run it through both bars. The invariant worth keeping: every route arrives
   travelling in its entry direction, verified across all eight exit/entry combinations.
+
+## Calendars
+
+### 2026-08-01 — working days convert to elapsed days for simulation
+
+`WorkCalendar` has always answered "how many working days lie between these dates".
+`app/schedule/calendars.py` adds the inverse — `add_working_days`, and `density`, which is
+real working days over real elapsed days across a window. `app/services/sim_calendars.py`
+is the database half: stored `ScheduleCalendar` rows become `WorkCalendar` objects measured
+against the version's own dates, so a shutdown inside the schedule counts and one outside it
+does not.
+
+This exists because simulation needs one axis and a real schedule has several calendars.
+The full reasoning is in `REFERENCE.md` 2026-08-01; what belongs here is what it means for
+schedule code:
+
+- **Stored durations are unchanged.** `ScheduleActivity.*_days` stays working days paired
+  with `duration_calendar_id`, exactly as the Units invariant requires. Conversion happens
+  in the simulation adapter and nowhere else, so the parse remains a faithful record of the
+  source file.
+- **The Gantt is unaffected.** It renders dates, not durations, and `baseline_slip_calendar_days`
+  keeps its name and meaning.
+- **A calendar that fails to parse converts at 1.0** rather than borrowing the default
+  calendar's factor. Silently applying the wrong week to an activity is the invisible unit
+  error this whole module exists to remove; the unknown id is noted on the run instead.
+- **Gotcha: a window shorter than seven days is not measured.** Three days spanning a
+  weekend would measure a density of 1/3 rather than 5/7. `describe` falls back to the weekly
+  pattern below that threshold and reports `measured=False`.
