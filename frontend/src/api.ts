@@ -31,10 +31,12 @@ import type {
   ValidateResult,
 } from "./types";
 
+import { API_BASE as BASE } from "./config";
+import { scopedQuery } from "./scope-state";
+
 /** Which set of scores a matrix is drawn from: pre-mitigation or post-mitigation. */
 export type MatrixBasis = "current" | "target";
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const ACTOR_KEY = "risk-actor";
 
 export function getActor(): string {
@@ -79,16 +81,24 @@ export function getCategories(): Promise<Category[]> {
 export function getRisks(
   params: { category?: string; status?: string; limit?: number } = {}
 ): Promise<Risk[]> {
-  const qs = new URLSearchParams();
-  if (params.category) qs.set("category", params.category);
-  if (params.status) qs.set("status", params.status);
-  if (params.limit) qs.set("limit", String(params.limit));
-  const q = qs.toString();
-  return fetch(`${BASE}/risks${q ? `?${q}` : ""}`).then((r) => handle<Risk[]>(r));
+  return fetch(
+    `${BASE}/risks${scopedQuery({
+      category: params.category,
+      status: params.status,
+      limit: params.limit,
+    })}`
+  ).then((r) => handle<Risk[]>(r));
 }
 
+/**
+ * The scope is a query parameter rather than part of the body because the server treats
+ * it as routing, not content: it resolves the owning project and refuses anything that is
+ * not one. Sending it even when it will be refused is deliberate — silently defaulting a
+ * risk typed under a program into the default project is the scope-mixing this exists to
+ * stop.
+ */
 export function createRisk(payload: RiskCreate): Promise<Risk> {
-  return fetch(`${BASE}/risks`, {
+  return fetch(`${BASE}/risks${scopedQuery()}`, {
     method: "POST",
     headers: writeHeaders(),
     body: JSON.stringify(payload),
@@ -114,6 +124,15 @@ export function getRiskHistory(id: number): Promise<HistoryEntry[]> {
   return fetch(`${BASE}/risks/${id}/history`).then((r) => handle<HistoryEntry[]>(r));
 }
 
+/**
+ * Platform-wide, deliberately unscoped.
+ *
+ * `risk_history` carries no scope of its own and outlives the risk it describes, so the
+ * only way to narrow this would be a join back to `risk` — which would erase every
+ * deleted risk from the audit trail the moment a scope was selected. Scoping the feed
+ * properly means denormalising `scope_id` onto the history table in a migration, which is
+ * a decision, not a join.
+ */
 export function getActivity(limit = 100): Promise<HistoryEntry[]> {
   return fetch(`${BASE}/history?limit=${limit}`).then((r) => handle<HistoryEntry[]>(r));
 }
@@ -206,7 +225,10 @@ async function download(url: string, fallbackName: string): Promise<void> {
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function exportRegister(): Promise<void> {
-  return download(`${BASE}/export/register.xlsx`, `risk_register_${today()}.xlsx`);
+  return download(
+    `${BASE}/export/register.xlsx${scopedQuery()}`,
+    `risk_register_${today()}.xlsx`
+  );
 }
 
 export interface MatrixQuery {
@@ -228,17 +250,17 @@ export function exportMatrix(
   query: MatrixQuery = {},
   format: "xlsx" | "svg" = "xlsx"
 ): Promise<void> {
-  const qs = new URLSearchParams();
-  if (query.lens) qs.set("lens", query.lens);
-  if (query.basis) qs.set("basis", query.basis);
-  if (query.category) qs.set("category", query.category);
-  if (query.status) qs.set("status", query.status);
-  if (query.owner) qs.set("owner", query.owner);
-  if (query.showCodes !== undefined) qs.set("show_codes", String(query.showCodes));
-  if (query.title && format === "svg") qs.set("title", query.title);
-  const q = qs.toString();
+  const q = scopedQuery({
+    lens: query.lens,
+    basis: query.basis,
+    category: query.category,
+    status: query.status,
+    owner: query.owner,
+    show_codes: query.showCodes,
+    title: format === "svg" ? query.title : undefined,
+  });
   return download(
-    `${BASE}/export/matrix.${format}${q ? `?${q}` : ""}`,
+    `${BASE}/export/matrix.${format}${q}`,
     `risk_matrix_${today()}.${format}`
   );
 }
@@ -250,7 +272,7 @@ export function exportMatrix(
 export function getScheduleVersions(
   currentOnly = false
 ): Promise<ScheduleVersionSummary[]> {
-  const q = currentOnly ? "?current_only=true" : "";
+  const q = scopedQuery({ current_only: currentOnly ? true : undefined });
   return fetch(`${BASE}/schedules${q}`).then((r) => handle<ScheduleVersionSummary[]>(r));
 }
 
@@ -276,7 +298,7 @@ export async function uploadSchedule(file: File, projectId?: string): Promise<Up
 
   // No Content-Type header: the browser must set the multipart boundary itself, and
   // setting it by hand produces a body the server cannot split.
-  const res = await fetch(`${BASE}/schedules/upload`, {
+  const res = await fetch(`${BASE}/schedules/upload${scopedQuery()}`, {
     method: "POST",
     headers: { "X-Actor": getActor() },
     body,

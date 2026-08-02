@@ -37,7 +37,7 @@ from app.services.schedule_gantt import (
     build_gantt,
 )
 from app.services.schedule_delete import delete_impact, delete_version
-from app.services.scope import resolve_write_scope
+from app.services.scope import resolve_read_scope, resolve_write_scope
 from app.services.schedule_ingest import (
     MAX_UPLOAD_BYTES,
     create_version,
@@ -321,11 +321,19 @@ async def list_versions(
     current_only: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
     db: AsyncSession = Depends(get_db),
 ) -> list[VersionSummary]:
     stmt = select(ScheduleVersion).order_by(ScheduleVersion.id.desc())
     if current_only:
         stmt = stmt.where(ScheduleVersion.is_current.is_(True))
+    scope_ids = await resolve_read_scope(db, scope_id)
+    if scope_ids is not None:
+        # The scope is on the stored file, not the parse: one uploaded file can be parsed
+        # more than once and every version of it belongs to whoever owns the bytes.
+        stmt = stmt.join(ScheduleFile, ScheduleFile.id == ScheduleVersion.file_id).where(
+            ScheduleFile.scope_id.in_(scope_ids)
+        )
     rows = (await db.scalars(stmt.limit(limit).offset(offset))).all()
     return [_version_summary(row) for row in rows]
 

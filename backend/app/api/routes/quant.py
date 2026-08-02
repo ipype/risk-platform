@@ -16,7 +16,7 @@ per-subsystem table nobody joins.
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
@@ -34,6 +34,7 @@ from app.models.quant import (
 )
 from app.models.risk import Risk
 from app.services import quant_validation as qv
+from app.services.scope import resolve_read_scope
 
 router = APIRouter(tags=["quant"])
 
@@ -611,19 +612,28 @@ async def set_triage(
 
 
 @router.get("/quant/triage", response_model=dict)
-async def get_triage(db: AsyncSession = Depends(get_db)) -> dict:
+async def get_triage(
+    db: AsyncSession = Depends(get_db),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
+) -> dict:
     """Which risks are flagged for quantification.
 
     Lives here rather than as a field on ``RiskRead`` so the register's payload does not
     grow a column only this workflow reads, and so triage stays owned by one router.
     """
-    res = await db.execute(select(Risk.id).where(Risk.quantify.is_(True)))
+    triage = select(Risk.id).where(Risk.quantify.is_(True))
+    scope_ids = await resolve_read_scope(db, scope_id)
+    if scope_ids is not None:
+        triage = triage.where(Risk.scope_id.in_(scope_ids))
+    res = await db.execute(triage)
     return {"risk_ids": sorted(res.scalars().all())}
 
 
 @router.get("/quant/coverage", response_model=QuantCoverageResponse)
 async def coverage(
-    scenario: str = "pre_mitigation", db: AsyncSession = Depends(get_db)
+    scenario: str = "pre_mitigation",
+    db: AsyncSession = Depends(get_db),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
 ) -> QuantCoverageResponse:
     """Which flagged risks still have no estimate.
 
@@ -633,7 +643,11 @@ async def coverage(
     """
     _check_scenario(scenario)
 
-    flagged = await db.execute(select(Risk.id).where(Risk.quantify.is_(True)))
+    flagged_query = select(Risk.id).where(Risk.quantify.is_(True))
+    scope_ids = await resolve_read_scope(db, scope_id)
+    if scope_ids is not None:
+        flagged_query = flagged_query.where(Risk.scope_id.in_(scope_ids))
+    flagged = await db.execute(flagged_query)
     flagged_ids = set(flagged.scalars().all())
 
     done = await db.execute(

@@ -29,6 +29,7 @@ from app.models.matrix import get_active_config
 from app.models.mitigation import MitigationAction
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.services.scope import resolve_read_scope
 from app.services.matrix_export import (
     OVERALL,
     Grid,
@@ -435,6 +436,7 @@ async def _load_risk_rows(
     category: str | None = None,
     status: str | None = None,
     owner: str | None = None,
+    scope_ids: list[int] | None = None,
 ) -> list[RiskRow]:
     stmt = (
         select(Risk, RbsSubcategory, RbsCategory)
@@ -442,6 +444,8 @@ async def _load_risk_rows(
         .join(RbsCategory, RbsCategory.id == RbsSubcategory.category_id)
         .order_by(Risk.risk_code)
     )
+    if scope_ids is not None:
+        stmt = stmt.where(Risk.scope_id.in_(scope_ids))
     result = await db.execute(_filtered(stmt, category, status, owner))
     return list(result.all())
 
@@ -464,19 +468,26 @@ def _slug(lens: str) -> str:
 
 
 @router.get("/register.xlsx")
-async def export_register(db: AsyncSession = Depends(get_db)) -> StreamingResponse:
-    risk_rows = await _load_risk_rows(db)
+async def export_register(
+    db: AsyncSession = Depends(get_db),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
+) -> StreamingResponse:
+    """The register as a workbook, for whatever the scope tree is currently showing.
 
-    actions = (
-        (
-            await db.execute(
-                select(MitigationAction, Risk)
-                .join(Risk, Risk.id == MitigationAction.risk_id)
-                .order_by(Risk.risk_code, MitigationAction.sort_order)
-            )
-        )
-        .all()
+    Exporting a wider set than the screen displayed is how a program register ends up
+    attached to a project's monthly report.
+    """
+    scope_ids = await resolve_read_scope(db, scope_id)
+    risk_rows = await _load_risk_rows(db, scope_ids=scope_ids)
+
+    action_query = (
+        select(MitigationAction, Risk)
+        .join(Risk, Risk.id == MitigationAction.risk_id)
+        .order_by(Risk.risk_code, MitigationAction.sort_order)
     )
+    if scope_ids is not None:
+        action_query = action_query.where(Risk.scope_id.in_(scope_ids))
+    actions = (await db.execute(action_query)).all()
 
     categories = (
         (
@@ -537,10 +548,12 @@ async def export_matrix_xlsx(
     status: str | None = Query(default=None),
     owner: str | None = Query(default=None),
     show_codes: bool = Query(default=True),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
 ) -> StreamingResponse:
     config = await get_active_config(db)
     lens = valid_lens(lens, config)
-    risk_rows = await _load_risk_rows(db, category, status, owner)
+    scope_ids = await resolve_read_scope(db, scope_id)
+    risk_rows = await _load_risk_rows(db, category, status, owner, scope_ids)
     grid = _grid_from_rows(risk_rows, config, lens, basis)
     band_color = {b["name"]: _hex(b["color"]) for b in config.get("bands", [])}
 
@@ -573,10 +586,12 @@ async def export_matrix_svg(
     owner: str | None = Query(default=None),
     show_codes: bool = Query(default=True),
     title: str = Query(default="Risk matrix", max_length=120),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
 ) -> Response:
     config = await get_active_config(db)
     lens = valid_lens(lens, config)
-    risk_rows = await _load_risk_rows(db, category, status, owner)
+    scope_ids = await resolve_read_scope(db, scope_id)
+    risk_rows = await _load_risk_rows(db, category, status, owner, scope_ids)
     grid = _grid_from_rows(risk_rows, config, lens, basis)
 
     svg = grid_to_svg(grid, project_title=title, show_codes=show_codes)

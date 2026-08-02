@@ -13,6 +13,8 @@
  */
 
 import { getActor } from "./api";
+import { API_BASE as BASE } from "./config";
+import { scopedQuery } from "./scope-state";
 import type {
   RunDetail,
   RunPreview,
@@ -20,8 +22,6 @@ import type {
   RunSummary,
   SimulationOptions,
 } from "./simulation-types";
-
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 /** A domain failure the UI can branch on, rather than a string it has to parse. */
 export class SimApiError extends Error {
@@ -91,7 +91,9 @@ function writeHeaders(): Record<string, string> {
 
 /** Everything the run form needs to render, in one request. */
 export function getSimulationOptions(): Promise<SimulationOptions> {
-  return fetch(`${BASE}/simulations/options`).then((r) => handle<SimulationOptions>(r));
+  return fetch(`${BASE}/simulations/options${scopedQuery()}`).then((r) =>
+    handle<SimulationOptions>(r)
+  );
 }
 
 /**
@@ -101,7 +103,7 @@ export function getSimulationOptions(): Promise<SimulationOptions> {
  * per-risk exclusions surface. Called on every configuration change.
  */
 export function previewRun(payload: RunRequest): Promise<RunPreview> {
-  return fetch(`${BASE}/simulations/preview`, {
+  return fetch(`${BASE}/simulations/preview${scopedQuery()}`, {
     method: "POST",
     headers: writeHeaders(),
     body: JSON.stringify(payload),
@@ -109,7 +111,7 @@ export function previewRun(payload: RunRequest): Promise<RunPreview> {
 }
 
 export function startRun(payload: RunRequest): Promise<RunDetail> {
-  return fetch(`${BASE}/simulations`, {
+  return fetch(`${BASE}/simulations${scopedQuery()}`, {
     method: "POST",
     headers: writeHeaders(),
     body: JSON.stringify(payload),
@@ -117,7 +119,9 @@ export function startRun(payload: RunRequest): Promise<RunDetail> {
 }
 
 export function getRuns(limit = 50): Promise<RunSummary[]> {
-  return fetch(`${BASE}/simulations?limit=${limit}`).then((r) => handle<RunSummary[]>(r));
+  return fetch(`${BASE}/simulations${scopedQuery({ limit })}`).then((r) =>
+    handle<RunSummary[]>(r)
+  );
 }
 
 export function getRun(id: number): Promise<RunDetail> {

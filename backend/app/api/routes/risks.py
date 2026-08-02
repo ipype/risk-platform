@@ -18,7 +18,7 @@ from app.models.matrix import band_for, get_active_config, overall_impact
 from app.models.mitigation import MitigationAction
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
-from app.services.scope import resolve_write_scope
+from app.services.scope import resolve_read_scope, resolve_write_scope
 
 router = APIRouter(prefix="/risks", tags=["risks"])
 
@@ -195,8 +195,18 @@ async def list_risks(
     status: RiskStatus | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
 ) -> list[Risk]:
+    """The register for one scope, or for a whole program or portfolio.
+
+    A portfolio reads as itself plus every project beneath it, which is what makes the
+    scope tree a rollup rather than a filing cabinet. Omitting the scope reads everything,
+    which is what every caller did before the tree existed.
+    """
     stmt = select(Risk).order_by(Risk.risk_code)
+    scope_ids = await resolve_read_scope(db, scope_id)
+    if scope_ids is not None:
+        stmt = stmt.where(Risk.scope_id.in_(scope_ids))
     if category:
         stmt = (
             stmt.join(RbsSubcategory, RbsSubcategory.id == Risk.subcategory_id)

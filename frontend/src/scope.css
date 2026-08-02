@@ -1,0 +1,286 @@
+/* --- shell: sidebar beside the existing centred column --- */
+
+.app-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+/* `.app` keeps its own max-width and centring from index.css; it only needs to stop
+   claiming the full window now that something sits next to it. */
+.app-shell > .app {
+  flex: 1;
+  min-width: 0;
+}
+
+.scopeside {
+  flex: none;
+  width: 268px;
+  align-self: stretch;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  z-index: 8;
+}
+.scopeside-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.scopeside-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.scopeside-head .spacer { flex: 1; }
+.scopeside-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 6px 16px;
+}
+.scopeside-close { display: none; }
+
+/* --- tree --- */
+
+.scopetree, .scopebranch {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.scopetree:focus { outline: none; }
+
+.scopeitem { outline: none; }
+.scopeitem > .scoperow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  min-height: 30px;
+}
+.scopeitem > .scoperow:hover { background: #f0f1f2; }
+.scopeitem.selected > .scoperow {
+  background: #e7f0ea;
+  color: var(--primary-hover);
+  font-weight: 600;
+}
+.scopeitem:focus-visible > .scoperow {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.scopetwist {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.scopetwist:hover { background: #e4e6e9; color: var(--text); }
+.scopetwist.blank { cursor: default; }
+
+.scopechip {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #eef1f4;
+  color: #3a4453;
+  text-transform: none;
+}
+.scopechip.kind-portfolio { background: #e6f0fb; color: #1f5aa6; }
+.scopechip.kind-program { background: #fef6e0; color: #8a6100; }
+.scopechip.kind-project { background: #e7f4ea; color: #1f6b3a; }
+
+.scopename {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scopecode {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.scopedefault { flex: none; color: #b8860b; font-size: 11px; }
+.scopecount {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  background: #eef1f4;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-weight: 600;
+}
+
+.scopeactions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.scopeitem > .scoperow:hover .scopeactions,
+.scopeitem:focus-visible > .scoperow .scopeactions,
+.scopeitem.selected > .scoperow .scopeactions { opacity: 1; }
+.scopeaction {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 5px;
+}
+.scopeaction:hover { background: #e4e6e9; color: var(--text); }
+
+.scopetree-empty {
+  padding: 16px 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.scopetree-empty p { margin: 0 0 10px; }
+
+.scopeside-error {
+  margin: 8px;
+  font-size: 13px;
+}
+
+/* --- breadcrumb bar --- */
+
+.scopebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 0 14px;
+  margin-bottom: 4px;
+}
+.scopebar-spacer { flex: 1; }
+.scopebar-toggle { display: none; }
+
+.scopecrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.scopecrumb-part { display: inline-flex; align-items: center; gap: 4px; }
+.scopecrumb-sep { color: var(--muted); }
+.scopecrumb-link {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+.scopecrumb-link:hover { background: #ececee; color: var(--text); }
+.scopecrumb-link.current { color: var(--text); font-weight: 600; }
+
+.scopebar-notice {
+  font-size: 13px;
+  color: #8a6100;
+  background: #fef6e0;
+  border: 1px solid #f0e0b4;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+/* --- panel extras --- */
+
+.panel-body .hint { color: var(--muted); font-weight: 400; }
+.scope-reasons { margin: 6px 0 0; padding-left: 18px; }
+.scope-reasons li { margin-bottom: 2px; }
+.scope-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.scope-contains { font-size: 13px; color: var(--muted); }
+.scope-danger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* --- boot and failure states --- */
+
+.scope-boot {
+  max-width: 520px;
+  margin: 64px auto;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.scope-boot .btn { margin-top: 12px; }
+
+/* --- narrow: the sidebar becomes a drawer --- */
+
+@media (max-width: 900px) {
+  .scopeside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    max-height: none;
+    width: 280px;
+    max-width: 86vw;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 12px 0 32px rgba(0, 0, 0, 0.08);
+    z-index: 12;
+  }
+  .scopeside.open { transform: translateX(0); }
+  .scopeside-close { display: inline-block; }
+  .scopebar-toggle { display: inline-block; }
+  .app-shell > .app { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scopeside { transition: none; }
+}
+
+/* Drawer scrim, only meaningful once the sidebar is off-canvas. */
+.scopeside-scrim { display: none; }
+@media (max-width: 900px) {
+  .scopeside-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 22, 25, 0.35);
+    z-index: 11;
+  }
+}

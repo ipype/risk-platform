@@ -25,10 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.mapping import RiskActivityMapping
 from app.models.quant import RiskQuantEstimate
-from app.models.schedule import DcmaRun, ScheduleVersion
+from app.models.risk import Risk
+from app.models.schedule import DcmaRun, ScheduleFile, ScheduleVersion
 from app.models.simulation import SimulationRun
 from app.services import quant_validation as qv
-from app.services.scope import resolve_write_scope
+from app.services.scope import resolve_read_scope, resolve_write_scope
 from app.services.sim_assembly import Assembly, assemble, latest_dcma
 from app.services.sim_dispatch import dispatch
 from app.services.sim_execute import load_run
@@ -199,7 +200,10 @@ def _gate_view(dcma: DcmaRun | None) -> GateView:
 
 
 @router.get("/options", response_model=OptionsResponse)
-async def options(db: AsyncSession = Depends(get_db)) -> OptionsResponse:
+async def options(
+    db: AsyncSession = Depends(get_db),
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
+) -> OptionsResponse:
     """Everything the run form needs to render, in one request.
 
     Assembled here rather than left to the client to stitch from four endpoints, because
@@ -207,14 +211,16 @@ async def options(db: AsyncSession = Depends(get_db)) -> OptionsResponse:
     accepted mappings each one carries. A version with a green gate and no mappings runs
     fine and tells you nothing about schedule risk.
     """
-    counts = dict(
-        (
-            await db.execute(
-                select(RiskQuantEstimate.scenario, func.count())
-                .group_by(RiskQuantEstimate.scenario)
-            )
-        ).all()
+    scope_ids = await resolve_read_scope(db, scope_id)
+
+    estimate_counts = (
+        select(RiskQuantEstimate.scenario, func.count())
+        .join(Risk, Risk.id == RiskQuantEstimate.risk_id)
+        .group_by(RiskQuantEstimate.scenario)
     )
+    if scope_ids is not None:
+        estimate_counts = estimate_counts.where(Risk.scope_id.in_(scope_ids))
+    counts = dict((await db.execute(estimate_counts)).all())
     scenarios = [
         ScenarioOption(
             value=value,
@@ -234,14 +240,16 @@ async def options(db: AsyncSession = Depends(get_db)) -> OptionsResponse:
         ).all()
     )
 
+    version_query = select(ScheduleVersion).order_by(
+        ScheduleVersion.is_current.desc(), ScheduleVersion.created_at.desc()
+    )
+    if scope_ids is not None:
+        version_query = version_query.join(
+            ScheduleFile, ScheduleFile.id == ScheduleVersion.file_id
+        ).where(ScheduleFile.scope_id.in_(scope_ids))
+
     versions: list[VersionOption] = []
-    for version in (
-        await db.scalars(
-            select(ScheduleVersion).order_by(
-                ScheduleVersion.is_current.desc(), ScheduleVersion.created_at.desc()
-            )
-        )
-    ).all():
+    for version in (await db.scalars(version_query)).all():
         versions.append(
             VersionOption(
                 id=version.id,
@@ -372,6 +380,7 @@ def _detail(run: SimulationRun) -> RunDetail:
 async def list_runs(
     limit: int = Query(default=50, ge=1, le=200),
     status: str | None = None,
+    scope_id: int | None = Query(default=None, description="Restrict to this scope and everything under it. Omitted means unfiltered."),
     db: AsyncSession = Depends(get_db),
 ) -> list[SimulationRun]:
     """Newest first, without the payloads.
@@ -382,6 +391,9 @@ async def list_runs(
     query = select(SimulationRun).order_by(SimulationRun.created_at.desc(), SimulationRun.id.desc())
     if status:
         query = query.where(SimulationRun.status == status)
+    scope_ids = await resolve_read_scope(db, scope_id)
+    if scope_ids is not None:
+        query = query.where(SimulationRun.scope_id.in_(scope_ids))
     return list((await db.scalars(query.limit(limit))).all())
 
 

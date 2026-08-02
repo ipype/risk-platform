@@ -5,12 +5,13 @@
  * per feature matches the repo's rule of splitting rather than consolidating, and keeps a
  * change here from producing a diff across the whole API surface.
  *
- * `BASE` is re-derived rather than imported because `api.ts` keeps it module-private.
- * Worth hoisting both into a `config.ts` next time `api.ts` is open for another reason —
- * two reads of the same env var is one too many.
+ * `BASE` now comes from `config.ts`, which is where the three copies of the env read were
+ * hoisted when scoping opened `api.ts` for another reason.
  */
 
 import { getActor } from "../api";
+import { API_BASE as BASE } from "../config";
+import { scopedQuery } from "../scope-state";
 import type {
   QuantCoverage,
   QuantDriver,
@@ -21,8 +22,6 @@ import type {
   QuantScenario,
   QuantVocabulary,
 } from "./types";
-
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 function writeHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", "X-Actor": getActor() };
@@ -120,7 +119,9 @@ export function setEstimateLock(
 }
 
 export function getTriage(): Promise<{ risk_ids: number[] }> {
-  return fetch(`${BASE}/quant/triage`).then((r) => handle<{ risk_ids: number[] }>(r));
+  return fetch(`${BASE}/quant/triage${scopedQuery()}`).then((r) =>
+    handle<{ risk_ids: number[] }>(r)
+  );
 }
 
 export function setTriage(riskIds: number[], quantify: boolean): Promise<{ updated: number }> {
@@ -132,11 +133,12 @@ export function setTriage(riskIds: number[], quantify: boolean): Promise<{ updat
 }
 
 export function getQuantCoverage(scenario: QuantScenario): Promise<QuantCoverage> {
-  return fetch(`${BASE}/quant/coverage?scenario=${scenario}`).then((r) =>
+  return fetch(`${BASE}/quant/coverage${scopedQuery({ scenario })}`).then((r) =>
     handle<QuantCoverage>(r)
   );
 }
 
+/** Unscoped: drivers are a shared vocabulary, reused across every project. */
 export function getDrivers(): Promise<QuantDriver[]> {
   return fetch(`${BASE}/drivers`).then((r) => handle<QuantDriver[]>(r));
 }
