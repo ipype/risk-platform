@@ -320,3 +320,72 @@ Two gotchas worth carrying forward:
   FastAPI reads a `-> None` return annotation as a response body and refuses to register
   the route at all, so this repo's route modules don't use the future import; a comment in
   `scopes.py` exists so nobody adds it back.
+
+### 2026-08-01 — 4.7's UI and 4.8 shipped: scope tree, breadcrumb, and scoped reads
+
+Closes out the hierarchy work started earlier the same day. Frontend and backend, verified
+together against a fresh clone.
+
+- **Scope selection lives outside React**, in `scope-state.ts`, deliberately mirroring
+  `getActor`/`setActor`'s existing shape rather than introducing a second pattern.
+  `api.ts`, `sim-api.ts` and `quant/api.ts` cannot read a React context and should not
+  have to reach into one; `ScopeContext.tsx` is the sole writer and writes through to the
+  module store *before* the state update that triggers a re-render, so a remounted view's
+  first fetch already carries the new scope rather than racing it.
+- **Views are keyed on `scope.scopeId`, not individually edited.** `<div key={scopeId}>`
+  around the view host remounts every view on project switch — refiring every `useEffect`,
+  rescoping every fetch, and guaranteeing a selected schedule version or open run from the
+  previous project cannot survive onto the new one. Zero changes to any of the ten view
+  files. The trade is a full remount on every switch rather than a surgical refetch; given
+  switching project is expected to be rare relative to working within one, this was the
+  right side of that trade.
+- **Nothing renders until the tree has loaded.** `Shell` blocks on `scope.loading` before
+  mounting any view. Rendering before the tree settles would fire one unscoped round of
+  requests and a second, scoped round moments later — briefly showing another project's
+  rows in between on a first load.
+- **Writes send `scope_id` even when the resolved scope will refuse them.** Creating a
+  risk while a program or portfolio is selected sends the scope anyway; `resolve_write_scope`
+  refuses anything that isn't a project with the same named 422 the API already had. The
+  alternative — omitting the scope so the write silently lands on the default project — is
+  exactly the scope-mixing this whole feature exists to prevent, so it was rejected even
+  though it would have "worked" from the form's point of view.
+- **The scope tree is a single tab stop.** `ScopeTree` uses roving tabindex with full
+  arrow-key navigation (`Up`/`Down` move focus, `Right`/`Left` expand and collapse or move
+  to parent, `Enter`/`Space` select); every row's inline buttons carry `tabIndex={-1}` and
+  are reachable instead from the always-in-order breadcrumb bar. A hundred-project
+  portfolio with three tab stops per row would not be keyboard-navigable; one stop for the
+  whole tree is.
+- **Reads scoped on the backend via the read side of the invariant already in place for
+  writes.** `resolve_read_scope` (existing, previously called by nothing) now backs
+  `list_risks`, `list_versions` (schedules — joined through `ScheduleFile.file_id`, since
+  the scope belongs to the stored bytes and a file may be parsed into more than one
+  version), `list_runs` and `options` (simulations), both matrix exports, the register
+  export, `quant/triage`, `quant/coverage`. Only three tables carry `scope_id` —
+  `Risk`, `ScheduleFile`, `SimulationRun` — so those are the only filters needed; mappings
+  and quant estimates inherit scoping through the risks and versions they reference.
+- **Two reads deliberately left unscoped, each flagged inline rather than silently
+  matching the pattern:**
+  - The activity feed (`GET /history`, `risk_history` model). The table carries no
+    `scope_id` and is designed to survive risk deletion (invariant 5); the only available
+    filter is a join back to `risk`, which would drop a deleted risk's history the instant
+    a scope was selected. Scoping it correctly needs `scope_id` denormalised onto
+    `risk_history` at write time, which is a migration and a decision, not a join —
+    tracked in `BACKLOG.md` → Blocked.
+  - Drivers (`GET /drivers`, `RiskDriver`). Shared vocabulary — "adverse weather" is
+    reused across every project by design — so scoping it would be the bug, not the fix.
+- **Confirmed FastAPI ignores undeclared query parameters** rather than rejecting the
+  request (checked live against a `TestClient`, not from memory), which is what makes it
+  safe to thread `scope_id` onto every list/create/export call in the frontend ahead of a
+  route actually reading it — the parameter is a no-op until the corresponding backend
+  change lands, never a 422.
+- **`ACTIVE.md` was stale going in.** It listed the Monte Carlo UI, JCL/sensitivity, and
+  scope-hierarchy zips as pending Sam's local apply; reading `scopes.py` and
+  `services/scope.py` directly off `main` this session showed all three already
+  committed. Nothing was broken by this — the session's own verification runs against
+  `main`, not against `ACTIVE.md`'s claims — but it means a "pending apply" line more than
+  one session old should be checked against `main` before being trusted, not carried
+  forward. Noted in `BACKLOG.md` → Watch items.
+
+Verified: fresh clone, `npm ci` + `tsc --noEmit` + `vite build` clean; backend 649 passed /
+3 skipped (12 new, in `test_scoped_reads.py`, reverted against unfiltered code to confirm 4
+fail without the filter); `ruff check` clean on every touched backend file.

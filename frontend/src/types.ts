@@ -94,10 +94,14 @@ export interface HistoryEntry {
 export interface MitigationAction {
   id: number;
   risk_id: number;
+  /** The package this action belongs to, if any. Actions may sit outside every plan. */
+  plan_id: number | null;
   action: string;
   owner: string | null;
   due_date: string | null;
   budget: number | null;
+  /** Programme the action itself consumes, not the delay it removes. */
+  sched_days: number | null;
   completion_pct: number | null;
   effectiveness: string | null;
   status: string;
@@ -110,9 +114,11 @@ export interface MitigationInput {
   owner?: string | null;
   due_date?: string | null;
   budget?: number | null;
+  sched_days?: number | null;
   completion_pct?: number | null;
   effectiveness?: string | null;
   status?: string;
+  plan_id?: number | null;
 }
 
 export interface FieldDef {

@@ -8,6 +8,14 @@ have fired.
 - Embedding provider: Voyage (hosted, per-token) vs self-hosted BGE-M3 (GPU, or slow on
   CPU). Blocks the ingestion pipeline's index build.
 - Deployment target (cloud, VPC, on-prem). MPXJ's JRE dependency constrains this.
+- **Should the activity feed be scoped?** `risk_history` carries no `scope_id` and is
+  designed to outlive the risk it describes — deleting a risk keeps its history row, per
+  invariant 5. The only filter available today is a join back to `risk`, which would drop
+  every deleted risk's history the moment a scope was selected, quietly breaking that
+  invariant. Scoping it properly means denormalising `scope_id` onto `risk_history` in a
+  migration, captured at write time from the risk it was created against. Left unscoped
+  in 4.8 (`api.ts` `getActivity`, `history.py`), with a comment explaining why, pending
+  this decision. Low urgency until a second project makes the platform-wide feed noisy.
 - **No ruff config, and the tree is not format-clean at any width.** `make fmt` runs
   `ruff format .` with no line-length flag, so the effective width is ruff's default 88 —
   not the 100 `CLAUDE.md` claimed. At 88, 25 files would reformat; at 100, a different set
@@ -17,26 +25,33 @@ have fired.
   the width and reformat the tree once in a dedicated commit, or stop claiming the repo is
   formatted.
 - **No frontend test runner.** `CLAUDE.md` lists Vitest and Playwright;
-  `frontend/package.json` has neither. Two deliveries running — the Gantt's row flattening
-  and scale arithmetic (2.4), and the arrow geometry (2026-07-30) — have shipped their
-  most test-worthy pure functions validated only by a throwaway `esbuild` + `node` script.
+  `frontend/package.json` has neither. Five deliveries running have now shipped their most
+  test-worthy pure functions validated only by throwaway harnesses: the Gantt's row
+  flattening and arrow geometry (2.4, 2026-07-30), `SCurve`/`Tornado`/`CriticalityTable`'s
+  arithmetic (4.1–4.3), `JointScatter`'s frontier and path construction (4.1 JCL), and now
+  the scope tree's fold/path/subtree/placement functions (4.7/4.8) — the last of these at
+  least got a real node-script harness with ~30 assertions, still thrown away at delivery.
   Adding Vitest is a stack decision against a `package.json` deliberately held at two
   runtime dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
 
 **Resolved 2026-08-01**: single- vs multi-tenant data model. Decided as a strict
 portfolio → program → project tree, one parent per node, no project shared across programs.
-See `REFERENCE.md` 2026-08-01. Implementation is `ACTIVE.md` → 4.7 (schema + backfill) and
-4.8 (scope tree sidebar + scoped routing), both pulled forward to land before P5. This also
+See `REFERENCE.md` 2026-08-01. 4.7 (schema, backfill, CRUD API) and 4.8 (scope tree
+sidebar, scoped routing, scoped reads) both shipped and verified 2026-08-01. This also
 unblocks the mapping suggestion engine's per-request corpus scoring noted in
 `claude/ref/schedule.md` 2026-07-29 — it can now scope by node instead of guessing.
 
+**Resolved 2026-08-01**: reads were unfiltered by scope even after 4.7's writes were.
+`resolve_read_scope` now backs `list_risks`, `list_versions`, `list_runs`, `options`, both
+matrix exports, the register export, `quant/triage`, `quant/coverage`. 12 tests in
+`test_scoped_reads.py`, reverted against unfiltered code to confirm 4 of them fail without
+the filter. The window this created — a second project's rows indistinguishable from the
+first's in every list endpoint — no longer exists.
+
 ## Subsystems not yet designed in depth
 
-- Monte Carlo reporting gaps left by P4: JCL scatter (cost against delay per
-  iteration), schedule sensitivity index, and a histogram view. The engine already
-  returns `histogram` on every `SeriesSummary` and `RunArrays` carries the
-  per-iteration columns a JCL plot needs; neither is persisted or drawn.
-- Mitigation planning with re-simulation ROI (mitigated vs unmitigated delta).
+- Mitigation planning with re-simulation ROI (mitigated vs unmitigated delta). **Next
+  build target per `ACTIVE.md`.**
 - Living risk register and the realized-outcome learning loop.
 - Report export: template engine, section registry, xlsx/pptx/pdf targets.
 - Workshop facilitation mode: Delphi anonymous voting, convergence detection, quorum.
@@ -48,8 +63,8 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
 - Program/portfolio rollup (P8): register rollup with source-project provenance column,
   shared/escalated risk promotion across projects, quantified-impact + rank-badge surfacing
   in register rows, Method A (master-schedule QRA) and Method B (per-iteration aggregation
-  of child runs), and the portfolio/program dashboards. Depends on 4.7/4.8 landing first.
-  Design in `REFERENCE.md` 2026-08-01.
+  of child runs), and the portfolio/program dashboards. 4.7/4.8 have now landed, so this is
+  unblocked. Design in `REFERENCE.md` 2026-08-01.
 
 ## Watch items
 
@@ -66,14 +81,18 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
 - `mapping_suggestion_outcome` precedent signal never decays and is scoped per-subcategory
   only. Fine until there's enough real acceptance/rejection data to evaluate against.
 - **Sam's local test environment.** `backend/.venv` (Python 3.13) is missing dev deps and
-  the local index caps `pytest-asyncio` at `0.24.0`. Two clean-sandbox runs (2026-07-30,
-  both sessions) installing the exact pins from `requirements.txt` + `requirements-dev.txt`
-  off real PyPI resolved `0.25.2` without trouble on Python 3.12 and ran the full suite
-  green, so this is the local index configuration and not the pin. Running in the `api`
-  container is still the fastest path.
+  the local index caps `pytest-asyncio` at `0.24.0`. Repeated clean-sandbox runs installing
+  the exact pins from `requirements.txt` + `requirements-dev.txt` off real PyPI resolve
+  `0.25.2` without trouble on Python 3.12 and run the full suite green, so this is the
+  local index configuration and not the pin. Running in the `api` container is still the
+  fastest path.
 - `claude/ref/schedule.md` is at roughly 200 lines as of its first day. If the Gantt notes
   and the mapping notes both keep growing, split again on that seam rather than letting one
   file become the expensive one to open.
+- **ACTIVE.md drift.** This session opened with three items marked "pending Sam's local
+  apply" that had, in fact, already been committed to `main`. Nothing broke, but treat any
+  "pending apply" line in `ACTIVE.md` older than the current session as unconfirmed until
+  checked against `main` — don't assume a prior session's TODO still describes reality.
 
 ## Surfaced 2026-07-30
 
@@ -128,10 +147,6 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
 - **`flower` is in `SYSTEM.md`'s port table (5555) but not in `docker-compose.yml`.** Either
   add the service or drop the row; a port table that lists something that does not exist is
   worse than one that omits it.
-- **The frontend test gap got materially worse.** `SimulationView.tsx` is 631 lines, and
-  `SCurve`, `Tornado` and `CriticalityTable` all carry real arithmetic — scale mapping,
-  variance-share bar geometry, percentile marker placement — with no runner to test it. This
-  is the third delivery to land untested frontend logic. See `REFERENCE.md` 2026-07-30.
 - **Runs cannot be deleted, by design and by test.** `test_a_run_cannot_be_deleted` pins it,
   on the append-only invariant. If a register accumulates hundreds of exploratory runs this
   becomes a UI problem (the list is capped at 50) rather than a data one. Archive/hide before
@@ -145,20 +160,6 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
   the P5 dedup work. Often *is* the discovery mechanism for a program-native risk: four
   projects independently carrying "permit delay" usually means it should be promoted, not
   left duplicated. Not scheduled — no WBS line yet.
-
-## Surfaced 2026-08-01 (JCL/SSI and scope hierarchy session)
-
-- **Reads are unscoped until 4.8 ships.** Every write (`create_risk`, `store_file`,
-  `create_run`) now resolves a project via `resolve_write_scope`, but every list/read route
-  is unfiltered — a second project's risks, files and runs are indistinguishable from the
-  first's in every list endpoint that exists today. Not a bug in what shipped (4.7 was
-  schema-only by design), but a real window: creating a second scope before 4.8 lands mixes
-  registers in the UI with no way to tell them apart. Prioritise 4.8 accordingly.
-- **The frontend test gap grew again.** `JointScatter.tsx` (new) carries real arithmetic —
-  bounds computation, the frontier polyline, path-string construction for a 1,200-point
-  cloud — validated only by `tsc` and a visual build check, same as `Tornado` and
-  `CriticalityTable` before it. Fourth delivery in a row landing untested frontend logic.
-  See `REFERENCE.md` 2026-07-30 and 2026-08-01.
 - **`result_json` payload size is growing.** ~84 kB at 10k iterations with the joint scatter
   included, roughly double pre-JCL. Fine for a JSONB column and a per-run fetch; worth
   revisiting if P6's report export ends up embedding several runs' results at once.

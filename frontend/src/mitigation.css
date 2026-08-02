@@ -1,0 +1,502 @@
+/* Mitigation planning. Prefixed `mit-` and self-contained, matching the `qnt-`, `map-`
+   and `mtx-` convention: nothing here cascades out, and nothing outside is relied on
+   beyond the shared `.btn` / `.link` / `.error` primitives in index.css. */
+
+.mit-view {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+}
+
+/* Below a laptop the rail stops earning its column and becomes a short index above the
+   work, rather than a squeezed strip beside it. */
+@media (max-width: 900px) {
+  .mit-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mit-planlist {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+}
+
+.mit-boot,
+.mit-empty {
+  color: var(--muted, #6b7078);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+/* ------------------------------------------------------------------ the plan rail */
+
+.mit-rail {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.mit-rail-head {
+  padding: 12px;
+  border-bottom: 1px solid #eceae4;
+}
+.mit-rail-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.mit-newplan {
+  display: flex;
+  gap: 6px;
+}
+.mit-newplan input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid #d8d8d2;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+}
+.mit-planlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mit-planbtn {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #f0eee8;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.mit-planbtn:hover {
+  background: #faf9f5;
+}
+.mit-planbtn.active {
+  background: #eef4f0;
+  box-shadow: inset 3px 0 0 var(--primary, #2f6f4e);
+}
+.mit-planname {
+  display: block;
+  font-size: 13px;
+}
+.mit-planmeta {
+  display: block;
+  font-size: 11px;
+  color: var(--muted, #6b7078);
+  text-transform: capitalize;
+}
+
+/* ---------------------------------------------------------------------- the plan */
+
+.mit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.mit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.mit-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.mit-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b7078);
+}
+.mit-head .mit-inline {
+  margin-left: auto;
+}
+.mit-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted, #6b7078);
+}
+.mit-inline input,
+.mit-inline select {
+  padding: 4px 6px;
+  border: 1px solid #d8d8d2;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text, #1e2125);
+}
+.mit-inline input {
+  width: 90px;
+}
+
+.mit-banner {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.mit-banner.error {
+  background: #fbeceb;
+  color: var(--danger, #b23b3b);
+}
+.mit-banner.ok {
+  background: #eef4f0;
+  color: #275f42;
+}
+
+.mit-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted, #6b7078);
+}
+.mit-note.warn {
+  color: #8a5a1f;
+}
+.mit-note.inline {
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------- the cost */
+
+.mit-cost,
+.mit-residual,
+.mit-materialise {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+.mit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mit-chip {
+  border: 1px solid #eceae4;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-width: 120px;
+}
+.mit-chip .k {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7078);
+}
+.mit-chip strong {
+  font-size: 17px;
+  font-weight: 600;
+}
+.mit-chip.warn {
+  border-color: #e6cfa8;
+  background: #fdf8ee;
+}
+.mit-chip.muted strong {
+  color: var(--muted, #6b7078);
+}
+
+.mit-actionhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.mit-actionhead h3,
+.mit-residual-head h3,
+.mit-materialise-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted, #6b7078);
+}
+.mit-actionhead .mit-check {
+  margin-left: auto;
+}
+
+.mit-actionlist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.mit-actionlist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-top: 1px solid #f0eee8;
+  font-size: 13px;
+}
+.mit-actionlist li.in {
+  background: #fafcfa;
+}
+.mit-actiontext {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.mit-status {
+  font-size: 11px;
+  color: var(--muted, #6b7078);
+}
+.mit-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted, #6b7078);
+}
+
+/* ----------------------------------------------------------------- the residual */
+
+.mit-tablewrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.mit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mit-table th,
+.mit-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #f0eee8;
+  text-align: left;
+  vertical-align: top;
+}
+.mit-table thead th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7078);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mit-table td.num,
+.mit-table th.num {
+  text-align: right;
+  white-space: nowrap;
+}
+.mit-table tbody tr {
+  cursor: pointer;
+}
+.mit-table tbody tr:hover {
+  background: #faf9f5;
+}
+.mit-table tbody tr.selected {
+  background: #eef4f0;
+}
+.mit-table tbody tr:focus-visible {
+  outline: 2px solid var(--primary, #2f6f4e);
+  outline-offset: -2px;
+}
+.mit-table tbody tr.retired .mit-after {
+  color: var(--muted, #6b7078);
+}
+.mit-table tbody th[scope="row"] {
+  font-weight: 400;
+}
+.mit-rowtitle {
+  display: block;
+}
+.mit-before {
+  color: var(--muted, #6b7078);
+}
+.mit-arrow {
+  padding: 0 5px;
+  color: #b9b6ac;
+}
+.mit-after {
+  font-weight: 600;
+}
+.mit-delta {
+  display: block;
+  font-size: 11px;
+  color: #275f42;
+}
+
+.mit-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #eef4f0;
+  color: #275f42;
+}
+.mit-pill.retire {
+  background: #f0eef8;
+  color: #453b7a;
+}
+.mit-pill.accept {
+  background: #f5f2e9;
+  color: #6b5a2a;
+}
+/* Untreated is deliberately not dressed up as a decision. */
+.mit-pill.untreated {
+  background: #f2f2f0;
+  color: var(--muted, #6b7078);
+}
+
+.mit-flag {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.mit-flag.locked {
+  background: #eceff4;
+  color: #3b4a63;
+}
+.mit-flag.edited {
+  background: #fdf8ee;
+  color: #8a5a1f;
+}
+.mit-flag.issue {
+  background: #fbeceb;
+  color: var(--danger, #b23b3b);
+}
+
+/* ------------------------------------------------------------- treatment editor */
+
+.mit-editor {
+  margin-top: 14px;
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfbf9;
+}
+.mit-editor-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mit-editor-head > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mit-editor-title {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.mit-fieldset {
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+.mit-fieldset legend {
+  padding: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7078);
+}
+.mit-radio {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.mit-radio.inline {
+  display: inline-flex;
+  margin-right: 18px;
+  align-items: center;
+}
+.mit-radio em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted, #6b7078);
+}
+.mit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.mit-grid label,
+.mit-rationale {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted, #6b7078);
+}
+.mit-grid input,
+.mit-rationale textarea {
+  padding: 5px 7px;
+  border: 1px solid #d8d8d2;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text, #1e2125);
+}
+.mit-grid .mit-note {
+  grid-column: 1 / -1;
+}
+.mit-rationale {
+  margin-top: 12px;
+}
+.mit-editor-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.mit-issues {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--danger, #b23b3b);
+}
+
+/* --------------------------------------------------------------- materialising */
+
+.mit-materialise-head {
+  margin-bottom: 10px;
+}
+.mit-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e6cfa8;
+  border-radius: 6px;
+  background: #fdf8ee;
+  font-size: 13px;
+}
+.mit-confirm p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+.mit-result {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f0eee8;
+  font-size: 13px;
+}
+.mit-result p {
+  margin: 0 0 4px;
+}

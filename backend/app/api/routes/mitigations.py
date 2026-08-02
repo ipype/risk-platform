@@ -18,9 +18,13 @@ class MitigationCreate(BaseModel):
     owner: str | None = None
     due_date: date | None = None
     budget: float | None = Field(default=None, ge=0)
+    #: Programme the action itself consumes, not the delay it removes. The two are
+    #: different numbers and a package priced only in money hides the second one.
+    sched_days: float | None = Field(default=None, ge=0)
     completion_pct: int | None = Field(default=None, ge=0, le=100)
     effectiveness: str | None = None
     status: str = "Proposed"
+    plan_id: int | None = None
 
 
 class MitigationUpdate(BaseModel):
@@ -28,18 +32,22 @@ class MitigationUpdate(BaseModel):
     owner: str | None = None
     due_date: date | None = None
     budget: float | None = Field(default=None, ge=0)
+    sched_days: float | None = Field(default=None, ge=0)
     completion_pct: int | None = Field(default=None, ge=0, le=100)
     effectiveness: str | None = None
     status: str | None = None
+    plan_id: int | None = None
 
 
 class MitigationRead(BaseModel):
     id: int
     risk_id: int
+    plan_id: int | None
     action: str
     owner: str | None
     due_date: date | None
     budget: float | None
+    sched_days: float | None
     completion_pct: int | None
     effectiveness: str | None
     status: str
@@ -98,9 +106,11 @@ async def create_action(
         owner=payload.owner,
         due_date=payload.due_date,
         budget=payload.budget,
+        sched_days=payload.sched_days,
         completion_pct=payload.completion_pct,
         effectiveness=payload.effectiveness,
         status=payload.status,
+        plan_id=payload.plan_id,
         sort_order=max_order.scalar_one() + 1,
     )
     db.add(action)
@@ -151,7 +161,7 @@ async def update_action(
     return action
 
 
-@router.delete("/{risk_id}/actions/{action_id}", status_code=204)
+@router.delete("/{risk_id}/actions/{action_id}", status_code=204, response_model=None)
 async def delete_action(
     risk_id: int,
     action_id: int,

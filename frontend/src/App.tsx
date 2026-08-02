@@ -8,6 +8,7 @@ import MappingView from "./views/MappingView";
 import ScheduleView from "./views/ScheduleView";
 import GanttView from "./views/GanttView";
 import QuantifyView from "./views/QuantifyView";
+import MitigateView from "./views/MitigateView";
 import SimulationView from "./views/SimulationView";
 import { ScopeProvider, useScope } from "./ScopeContext";
 import { ScopeBar } from "./components/scope/ScopeBar";
@@ -22,6 +23,7 @@ type View =
   | "register"
   | "matrix"
   | "quantify"
+  | "mitigate"
   | "simulate"
   | "schedule"
   | "gantt"
@@ -138,6 +140,9 @@ function Shell() {
           <button className={view === "quantify" ? "navlink active" : "navlink"} onClick={() => setView("quantify")}>
             Quantify
           </button>
+          <button className={view === "mitigate" ? "navlink active" : "navlink"} onClick={() => setView("mitigate")}>
+            Mitigate
+          </button>
           <button className={view === "simulate" ? "navlink active" : "navlink"} onClick={() => setView("simulate")}>
             Simulate
           </button>
@@ -180,6 +185,7 @@ function Shell() {
           {view === "register" && <RegisterView />}
           {view === "matrix" && <MatrixView />}
           {view === "quantify" && <QuantifyView />}
+          {view === "mitigate" && <MitigateView />}
           {view === "simulate" && <SimulationView />}
           {view === "schedule" && <ScheduleView />}
           {view === "gantt" && <GanttView />}

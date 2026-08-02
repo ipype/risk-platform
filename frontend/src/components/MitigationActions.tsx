@@ -52,6 +52,7 @@ export default function MitigationActions({ riskId }: Props) {
         owner: a.owner || null,
         due_date: a.due_date || null,
         budget: a.budget,
+        sched_days: a.sched_days,
         completion_pct: a.completion_pct,
         effectiveness: a.effectiveness || null,
         status: a.status,
@@ -117,6 +118,17 @@ export default function MitigationActions({ riskId }: Props) {
                 value={a.budget ?? ""}
                 onChange={(e) =>
                   field(a.id, "budget", e.target.value === "" ? null : Number(e.target.value))
+                }
+              />
+            </label>
+            <label>
+              Days consumed
+              <input
+                type="number"
+                min={0}
+                value={a.sched_days ?? ""}
+                onChange={(e) =>
+                  field(a.id, "sched_days", e.target.value === "" ? null : Number(e.target.value))
                 }
               />
             </label>

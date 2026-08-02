@@ -14,6 +14,7 @@ from app.api.routes import (
     history,
     mappings,
     matrix,
+    mitigation_plans,
     mitigations,
     quant,
     rbs,
@@ -55,6 +56,7 @@ app.include_router(risks.router)
 app.include_router(matrix.router)
 app.include_router(history.router)
 app.include_router(mitigations.router)
+app.include_router(mitigation_plans.router)
 app.include_router(custom_fields.router)
 app.include_router(export.router)
 app.include_router(schedules.router)
