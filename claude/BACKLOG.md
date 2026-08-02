@@ -25,14 +25,23 @@ have fired.
   the width and reformat the tree once in a dedicated commit, or stop claiming the repo is
   formatted.
 - **No frontend test runner.** `CLAUDE.md` lists Vitest and Playwright;
-  `frontend/package.json` has neither. Five deliveries running have now shipped their most
+  `frontend/package.json` has neither. Seven deliveries running have now shipped their most
   test-worthy pure functions validated only by throwaway harnesses: the Gantt's row
   flattening and arrow geometry (2.4, 2026-07-30), `SCurve`/`Tornado`/`CriticalityTable`'s
-  arithmetic (4.1–4.3), `JointScatter`'s frontier and path construction (4.1 JCL), and now
-  the scope tree's fold/path/subtree/placement functions (4.7/4.8) — the last of these at
-  least got a real node-script harness with ~30 assertions, still thrown away at delivery.
-  Adding Vitest is a stack decision against a `package.json` deliberately held at two
-  runtime dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
+  arithmetic (4.1–4.3), `JointScatter`'s frontier and path construction (4.1 JCL), the
+  scope tree's fold/path/subtree/placement functions (4.7/4.8), and now `TreatmentEditor`'s
+  factor-bound validation and `ResidualTable`'s delta arithmetic (4.4, 2026-08-02). Adding
+  Vitest is a stack decision against a `package.json` deliberately held at two runtime
+  dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
+- **`sim_assembly.assemble()` is not scope-filtered.** 4.8's read-filtering pass covered
+  `list_risks`, `list_versions`, `list_runs`, `options`, both matrix exports, the register
+  export, and quant triage/coverage — it did not touch simulation assembly itself. A run
+  requested for one project currently reads every project's `risk_quant_estimate` rows
+  (and, via mapping, every project's schedule risk-to-activity mappings). Pre-existing
+  since before scoping landed; surfaced acutely by 4.4 (2026-08-02) because a mitigation
+  plan's residual register is inherently per-project, so an unscoped post-mitigation run
+  would read other projects' residuals into a supposedly single-project ROI. **Should
+  block the start of 4.5** — see `claude/ACTIVE.md`.
 
 **Resolved 2026-08-01**: single- vs multi-tenant data model. Decided as a strict
 portfolio → program → project tree, one parent per node, no project shared across programs.
@@ -46,12 +55,11 @@ unblocks the mapping suggestion engine's per-request corpus scoring noted in
 matrix exports, the register export, `quant/triage`, `quant/coverage`. 12 tests in
 `test_scoped_reads.py`, reverted against unfiltered code to confirm 4 of them fail without
 the filter. The window this created — a second project's rows indistinguishable from the
-first's in every list endpoint — no longer exists.
+first's in every list endpoint — no longer exists for those endpoints. (Simulation
+assembly was outside this pass — see the new Blocked item above.)
 
 ## Subsystems not yet designed in depth
 
-- Mitigation planning with re-simulation ROI (mitigated vs unmitigated delta). **Next
-  build target per `ACTIVE.md`.**
 - Living risk register and the realized-outcome learning loop.
 - Report export: template engine, section registry, xlsx/pptx/pdf targets.
 - Workshop facilitation mode: Delphi anonymous voting, convergence detection, quorum.
@@ -65,6 +73,12 @@ first's in every list endpoint — no longer exists.
   in register rows, Method A (master-schedule QRA) and Method B (per-iteration aggregation
   of child runs), and the portfolio/program dashboards. 4.7/4.8 have now landed, so this is
   unblocked. Design in `REFERENCE.md` 2026-08-01.
+
+**Resolved 2026-08-02**: mitigation planning (actions, cost, declared residual). Shipped
+as 4.4 — `mitigation_plan` / `mitigation_plan_risk`, materialising into
+`RiskQuantEstimate.scenario="post_mitigation"`. Re-simulation ROI (the "with
+re-simulation ROI" half of the original line) remains open as 4.5, now the `ACTIVE.md`
+build target, and depends on the scope-filtering fix above.
 
 ## Watch items
 
@@ -89,10 +103,21 @@ first's in every list endpoint — no longer exists.
 - `claude/ref/schedule.md` is at roughly 200 lines as of its first day. If the Gantt notes
   and the mapping notes both keep growing, split again on that seam rather than letting one
   file become the expensive one to open.
-- **ACTIVE.md drift.** This session opened with three items marked "pending Sam's local
-  apply" that had, in fact, already been committed to `main`. Nothing broke, but treat any
-  "pending apply" line in `ACTIVE.md` older than the current session as unconfirmed until
-  checked against `main` — don't assume a prior session's TODO still describes reality.
+- **`ACTIVE.md` drift, twice now.** 2026-08-01: three items marked "pending Sam's local
+  apply" had already been committed to `main`. 2026-08-02: recurred — three more pending
+  items and a stale test-count baseline (637 vs the real 649) both predated commits already
+  on `main`. Treat any "pending apply" line in `ACTIVE.md` older than the current session as
+  unconfirmed until checked against `main` — don't assume a prior session's TODO still
+  describes reality. Two occurrences is a pattern; if a third happens, this needs a
+  mechanical check (e.g. bootstrap diffs `ACTIVE.md`'s claimed test count against a fresh
+  clone) rather than a written reminder.
+- **New gotcha, 2026-08-02**: `sa.text("now()")` in a migration's `server_default` is not
+  portable — SQLite has no `now()`, so such a migration can only be rendered offline, never
+  executed under test. `sa.func.now()` compiles correctly on both dialects. 0014 already
+  used the portable form; 0007 predates the convention and is the one migration in the
+  tree that has never been executed under test as a result. Not urgent to fix retroactively
+  — 0007 has no data-migration logic to hide a silent bug — but any new migration should
+  use `sa.func.now()`, and 0007 is a candidate if the convention ever needs demonstrating.
 
 ## Surfaced 2026-07-30
 
@@ -174,3 +199,20 @@ first's in every list endpoint — no longer exists.
   scope's `code` to one already in use hits the same `IntegrityError` path `create_scope`
   now guards against. Same fix, not yet applied — low priority until the UI exposes
   renaming a code at all.
+
+## Surfaced 2026-08-02
+
+- **`MitigationAction.plan_id` allows an action to belong to a plan in a different
+  scope than the risk it's on.** Nothing in the schema or the service enforces
+  `action.risk.scope_id == plan.scope_id` — the API only checks it when *treating* a
+  risk (`set_treatment`), not when assigning an action to a plan via
+  `PATCH /risks/{id}/actions/{id}`. Low practical risk today (the UI only offers
+  actions already in the selected scope), but worth a constraint or a service-level
+  check if the actions-across-scopes endpoint (`GET /mitigation/actions`) ever grows
+  a cross-scope assignment path.
+- **`TreatmentEditor`'s absolute-mode fields have no client-side ordering check.** The
+  server refuses an unordered absolute residual and falls back to the baseline
+  (`residual_fields`'s conservative-failure design), but the UI doesn't warn before
+  save — an analyst finds out only after submitting that their numbers were silently
+  not applied. Small: the `issues` array comes back in the residual preview and is
+  shown per-row, just not inline in the editor at entry time.

@@ -80,6 +80,12 @@ Calendar-agnostic day counts are a silent corruption source across `.xer` import
   clean up children behaves differently under test than in production. Delete children
   explicitly in dependency order where the result matters — it also lets the code report
   rows it actually removed rather than a number it assumed.
+- **`sa.text("now()")` in a migration's `server_default` is not portable.** SQLite has no
+  `now()` function, so a migration written this way can only be rendered offline for
+  Postgres and never executed against SQLite under test. `sa.func.now()` compiles to
+  `CURRENT_TIMESTAMP` on SQLite and `now()` on Postgres, and is what 0014 already used as
+  convention. 0007 predates the convention and is, as a result, the one migration in the
+  tree that has never actually been executed under test (found 2026-08-02, writing 0015).
 
 ## Decisions
 
@@ -321,71 +327,59 @@ Two gotchas worth carrying forward:
   the route at all, so this repo's route modules don't use the future import; a comment in
   `scopes.py` exists so nobody adds it back.
 
-### 2026-08-01 — 4.7's UI and 4.8 shipped: scope tree, breadcrumb, and scoped reads
+### 2026-08-02 — mitigation module (4.4): residual as a scenario, not a new schema
 
-Closes out the hierarchy work started earlier the same day. Frontend and backend, verified
-together against a fresh clone.
+Design settled and shipped this session:
 
-- **Scope selection lives outside React**, in `scope-state.ts`, deliberately mirroring
-  `getActor`/`setActor`'s existing shape rather than introducing a second pattern.
-  `api.ts`, `sim-api.ts` and `quant/api.ts` cannot read a React context and should not
-  have to reach into one; `ScopeContext.tsx` is the sole writer and writes through to the
-  module store *before* the state update that triggers a re-render, so a remounted view's
-  first fetch already carries the new scope rather than racing it.
-- **Views are keyed on `scope.scopeId`, not individually edited.** `<div key={scopeId}>`
-  around the view host remounts every view on project switch — refiring every `useEffect`,
-  rescoping every fetch, and guaranteeing a selected schedule version or open run from the
-  previous project cannot survive onto the new one. Zero changes to any of the ten view
-  files. The trade is a full remount on every switch rather than a surgical refetch; given
-  switching project is expected to be rare relative to working within one, this was the
-  right side of that trade.
-- **Nothing renders until the tree has loaded.** `Shell` blocks on `scope.loading` before
-  mounting any view. Rendering before the tree settles would fire one unscoped round of
-  requests and a second, scoped round moments later — briefly showing another project's
-  rows in between on a first load.
-- **Writes send `scope_id` even when the resolved scope will refuse them.** Creating a
-  risk while a program or portfolio is selected sends the scope anyway; `resolve_write_scope`
-  refuses anything that isn't a project with the same named 422 the API already had. The
-  alternative — omitting the scope so the write silently lands on the default project — is
-  exactly the scope-mixing this whole feature exists to prevent, so it was rejected even
-  though it would have "worked" from the form's point of view.
-- **The scope tree is a single tab stop.** `ScopeTree` uses roving tabindex with full
-  arrow-key navigation (`Up`/`Down` move focus, `Right`/`Left` expand and collapse or move
-  to parent, `Enter`/`Space` select); every row's inline buttons carry `tabIndex={-1}` and
-  are reachable instead from the always-in-order breadcrumb bar. A hundred-project
-  portfolio with three tab stops per row would not be keyboard-navigable; one stop for the
-  whole tree is.
-- **Reads scoped on the backend via the read side of the invariant already in place for
-  writes.** `resolve_read_scope` (existing, previously called by nothing) now backs
-  `list_risks`, `list_versions` (schedules — joined through `ScheduleFile.file_id`, since
-  the scope belongs to the stored bytes and a file may be parsed into more than one
-  version), `list_runs` and `options` (simulations), both matrix exports, the register
-  export, `quant/triage`, `quant/coverage`. Only three tables carry `scope_id` —
-  `Risk`, `ScheduleFile`, `SimulationRun` — so those are the only filters needed; mappings
-  and quant estimates inherit scoping through the risks and versions they reference.
-- **Two reads deliberately left unscoped, each flagged inline rather than silently
-  matching the pattern:**
-  - The activity feed (`GET /history`, `risk_history` model). The table carries no
-    `scope_id` and is designed to survive risk deletion (invariant 5); the only available
-    filter is a join back to `risk`, which would drop a deleted risk's history the instant
-    a scope was selected. Scoping it correctly needs `scope_id` denormalised onto
-    `risk_history` at write time, which is a migration and a decision, not a join —
-    tracked in `BACKLOG.md` → Blocked.
-  - Drivers (`GET /drivers`, `RiskDriver`). Shared vocabulary — "adverse weather" is
-    reused across every project by design — so scoping it would be the bug, not the fix.
-- **Confirmed FastAPI ignores undeclared query parameters** rather than rejecting the
-  request (checked live against a `TestClient`, not from memory), which is what makes it
-  safe to thread `scope_id` onto every list/create/export call in the frontend ahead of a
-  route actually reading it — the parameter is a no-op until the corresponding backend
-  change lands, never a 422.
-- **`ACTIVE.md` was stale going in.** It listed the Monte Carlo UI, JCL/sensitivity, and
-  scope-hierarchy zips as pending Sam's local apply; reading `scopes.py` and
-  `services/scope.py` directly off `main` this session showed all three already
-  committed. Nothing was broken by this — the session's own verification runs against
-  `main`, not against `ACTIVE.md`'s claims — but it means a "pending apply" line more than
-  one session old should be checked against `main` before being trusted, not carried
-  forward. Noted in `BACKLOG.md` → Watch items.
+- **No new estimate-shaped table.** `RiskQuantEstimate.scenario`, its
+  `uq_quant_risk_scenario` constraint, and `sim_assembly.assemble(scenario=...)` existed
+  since 0011/0013 with only `pre_mitigation` ever written. `mitigation_plan_risk` declares
+  a **treatment** — `reduce` (factor or absolute), `retire`, `accept` — and *materialising*
+  projects it into `RiskQuantEstimate` rows under `scenario="post_mitigation"`. A
+  materialised plan is then directly simulable with zero new engine code, proven by
+  `tests/test_mitigation_plans_api.py::TestAssemblesAsPostMitigation`. This is what makes
+  4.5 (re-simulation ROI) a comparison of two ordinary runs rather than a second engine.
+- **The residual register is the whole register.** A risk the plan says nothing about is
+  materialised *unchanged*, not omitted. Materialising only the treated subset would
+  understate residual contingency, and would do it invisibly — nothing in a run's output
+  would say the register was incomplete. `mitigation_plan.load_lines` is driven by the
+  baseline register (every risk with a `pre_mitigation` estimate in scope), not by the
+  plan's own entries, which makes the rule structural rather than a check someone has to
+  remember to run.
+- **Nothing in the module claims a benefit.** `MitigationPlanRisk` is a *declaration* —
+  what to simulate — never a measured effectiveness score. The old `MitigationAction`
+  already had a free-text `effectiveness` field (Low/Medium/High); that stays as-is for
+  qualitative tracking, but the quantitative path is deliberately kept apart from it. What
+  a package buys is the delta between two Monte Carlo runs (4.5), because the interaction
+  between correlated risks and the critical path cannot be multiplied out of a set of
+  per-risk factors.
+- **Plan cost is deterministic and additive; it is never added to a contingency figure.**
+  `MitigationAction` gained `sched_days` (programme the action itself consumes, separate
+  from the delay the risk it treats would have caused) alongside the existing `budget`.
+  `PlanCost` sums both, reports an `unpriced_count` for actions with neither, and the
+  service and the UI both keep this figure structurally apart from anything a simulation
+  produces — invariant 1 (no additive percentiles) extended to a new place a "helpful"
+  rollup could have violated it.
+- **Factors are bounded `(0, 1]`, enforced by CHECK constraints, not just Pydantic.** A
+  factor above 1 — a treatment that makes a risk *worse* — is a secondary risk with its
+  own cause and belongs in the register as its own line, not hidden inside a multiplier a
+  reviewer would have to notice was above one.
+- **Materialise guards, not replaces, prior work.** Locked residuals (frozen by a run —
+  invariant 6) are stepped over unconditionally. A residual that changed since the plan
+  last wrote it (hand-edited, or written by a different plan) requires
+  `confirm_replace_edited=true`; the 409 refusal does not half-write, verified by
+  `test_overwriting_a_hand_written_residual_needs_confirmation` asserting the row is
+  untouched after the blocked call. Attribution runs on a sha256 fingerprint of exactly
+  what a materialisation wrote (`mitigation_plan.fingerprint`), stored on the plan —
+  the mechanism a future "is this run still measuring this package" check would use.
 
-Verified: fresh clone, `npm ci` + `tsc --noEmit` + `vite build` clean; backend 649 passed /
-3 skipped (12 new, in `test_scoped_reads.py`, reverted against unfiltered code to confirm 4
-fail without the filter); `ruff check` clean on every touched backend file.
+Two gaps this surfaced rather than fixed, both in `BACKLOG.md`: `sim_assembly.assemble()`
+is not scope-filtered (4.8's read-scoping pass didn't reach simulation assembly, and a
+mitigation plan's per-project residual register makes this acute for 4.5); and
+`MitigationAction.plan_id` has no cross-scope check at assignment time, only at treatment
+time.
+
+New portable-migration gotcha found while writing 0015: `sa.text("now()")` in a
+`server_default` cannot run under the SQLite migration tests, because SQLite has no
+`now()` function — only `sa.func.now()` compiles correctly on both dialects. 0014 already
+used the portable form; 0007 predates the convention.
