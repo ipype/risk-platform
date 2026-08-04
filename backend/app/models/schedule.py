@@ -55,11 +55,27 @@ class ScheduleFile(Base):
     filename: Mapped[str] = mapped_column(String(500))
     suffix: Mapped[str] = mapped_column(String(20), index=True)
     content: Mapped[bytes] = mapped_column(LargeBinary)
-    content_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    #: Indexed but not unique on its own. "Where else did these bytes land" is a question
+    #: worth answering cheaply; "nobody else may hold them" is a claim this platform does
+    #: not make. Uniqueness is on the pair below — see ``__table_args__``.
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True)
     size_bytes: Mapped[int] = mapped_column(Integer)
     uploaded_by: Mapped[str] = mapped_column(String(120), default="Unknown")
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    __table_args__ = (
+        # Dedup is per scope, which is what ``store_file`` has always implemented and what
+        # migration 0017 put into the schema. This model kept the pre-scope global unique
+        # from 0009, so the two disagreed: every ``create_all`` environment — the test
+        # harness, any dev bootstrap that skips Alembic — still refused the second scope
+        # with a 500, and ``alembic revision --autogenerate`` would have written 0017 back
+        # out again. An integrated master schedule legitimately belongs to more than one
+        # project; a global hash match hands the second project a file owned by the first.
+        UniqueConstraint(
+            "scope_id", "content_sha256", name="uq_schedule_file_scope_sha256"
+        ),
     )
 
 

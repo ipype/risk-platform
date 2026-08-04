@@ -254,7 +254,11 @@ async def upload_schedule(
     file: UploadFile = File(...),
     project_id: str | None = Form(default=None),
     actor: str = Form(default="Unknown"),
-    scope_id: int | None = Form(default=None),
+    # Query, not Form. Scope is routing rather than content, so it travels the same way on
+    # every endpoint that takes it — and a multipart field the client never sends is a
+    # silent default, not an error: uploads landed on the default project while the list
+    # they should have appeared in was correctly filtered to the selected one.
+    scope_id: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a schedule, parse it, and run the DCMA gate in one call.
