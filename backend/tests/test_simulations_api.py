@@ -592,3 +592,84 @@ async def test_a_run_cannot_be_deleted(client):
     created = (await client.post("/simulations", json=FAST)).json()
     res = await client.delete(f"/simulations/{created['id']}")
     assert res.status_code == 405
+
+
+# --------------------------------------------------------------------------------------
+# cancelling a queued run
+# --------------------------------------------------------------------------------------
+#
+# ``simulation_eager`` (on for this whole file) means a run posted through the normal
+# route never sits in ``queued`` long enough to cancel — it is terminal by the time the
+# response comes back. So these seed a queued row directly, the same way the gate tests
+# seed a ``DcmaRun`` directly: exercising the row a dead worker would actually leave
+# behind, not the route that creates it.
+
+
+async def _seed_queued_run(client, **overrides) -> int:
+    fields = {"scope_id": 1, "name": "Stuck run", "status": "queued", **overrides}
+    async with client._maker() as session:
+        run = SimulationRun(**fields)
+        session.add(run)
+        await session.commit()
+        await session.refresh(run)
+        return run.id
+
+
+@pytest.mark.asyncio
+async def test_a_queued_run_can_be_cancelled(client):
+    run_id = await _seed_queued_run(client)
+
+    res = await client.post(
+        f"/simulations/{run_id}/cancel", headers={"X-Actor": "Sam"}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "cancelled"
+    assert body["cancelled_by"] == "Sam"
+    assert body["cancelled_at"] is not None
+    assert any("Cancelled by Sam" in n for n in body["assembly_notes"])
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_run_is_still_there_afterward(client):
+    """Cancel records a fact; it does not remove the row (invariant 5)."""
+    run_id = await _seed_queued_run(client)
+    await client.post(f"/simulations/{run_id}/cancel")
+
+    rows = (await client.get("/simulations")).json()
+    assert any(r["id"] == run_id and r["status"] == "cancelled" for r in rows)
+    assert (await client.get(f"/simulations/{run_id}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_run_cannot_be_cancelled_again(client):
+    run_id = await _seed_queued_run(client)
+    await client.post(f"/simulations/{run_id}/cancel")
+
+    res = await client.post(f"/simulations/{run_id}/cancel")
+    assert res.status_code == 409
+    assert res.json()["error"] == "simulation_run_not_cancellable"
+
+
+@pytest.mark.asyncio
+async def test_a_succeeded_run_cannot_be_cancelled(client):
+    created = (await client.post("/simulations", json=FAST)).json()
+    assert created["status"] == "succeeded"
+
+    res = await client.post(f"/simulations/{created['id']}/cancel")
+    assert res.status_code == 409
+    assert res.json()["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_a_running_run_cannot_be_cancelled(client):
+    run_id = await _seed_queued_run(client, status="running")
+    res = await client.post(f"/simulations/{run_id}/cancel")
+    assert res.status_code == 409
+    assert res.json()["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_missing_run_is_a_404(client):
+    res = await client.post("/simulations/9999/cancel")
+    assert res.status_code == 404

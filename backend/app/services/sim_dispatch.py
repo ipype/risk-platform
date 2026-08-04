@@ -19,6 +19,29 @@ from app.core.config import settings
 from app.models.simulation import SimulationRun
 
 
+async def revoke(run: SimulationRun) -> None:
+    """Tell the broker to drop a queued task before a worker claims it.
+
+    Best-effort and non-fatal by design, matching ``dispatch``: the caller has already
+    committed ``status='cancelled'`` under invariant 4's human-override rule, so a broker
+    that cannot be reached here should not undo that decision. ``sim_execute.execute``
+    is the real backstop — it refuses to touch a run that already reached a terminal
+    state, so a task that slips past this revoke and gets claimed anyway is a no-op, not
+    a race that overwrites the cancellation.
+
+    Nothing to revoke in the eager path or for a run that was never dispatched with a
+    task id — both leave silently.
+    """
+    if settings.simulation_eager or not run.task_id:
+        return
+    try:
+        from app.worker import celery_app
+
+        celery_app.control.revoke(run.task_id)
+    except Exception:  # noqa: BLE001 - the broker being unreachable is not this call's job
+        pass
+
+
 async def dispatch(db: AsyncSession, run: SimulationRun) -> SimulationRun:
     """Start the run. Never raises: a run that cannot be queued is a failed run."""
     if settings.simulation_eager:

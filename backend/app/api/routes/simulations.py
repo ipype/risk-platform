@@ -10,11 +10,17 @@ of writing a row.
 Runs are append-only (invariant 5). There is no PATCH and no DELETE: a run is what was
 asked and what came back, and changing either after the fact is how a contingency number
 stops being defensible. Re-running writes a new row.
+
+The one exception is ``POST /simulations/{id}/cancel``, and it is not a PATCH in
+disguise: it acts only on a run still sitting in ``queued``, before anything has come
+back, and it records rather than erases — who withdrew the run and when, next to what was
+asked. A run that has started, or that already carries a result, is exactly as immutable
+as the paragraph above says; the cancel route refuses anything that is not ``queued``.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -29,9 +35,10 @@ from app.models.risk import Risk
 from app.models.schedule import DcmaRun, ScheduleFile, ScheduleVersion
 from app.models.simulation import SimulationRun
 from app.services import quant_validation as qv
+from app.core.errors import SimulationRunNotCancellable
 from app.services.scope import descendant_ids, resolve_read_scope, resolve_write_scope
 from app.services.sim_assembly import Assembly, assemble, latest_dcma
-from app.services.sim_dispatch import dispatch
+from app.services.sim_dispatch import dispatch, revoke
 from app.services.sim_execute import load_run
 from app.sim import RunConfig
 
@@ -169,6 +176,8 @@ class RunSummary(BaseModel):
     finished_at: datetime | None
     duration_ms: int | None
     error: str | None
+    cancelled_by: str | None
+    cancelled_at: datetime | None
 
     model_config = {"from_attributes": True}
 
@@ -439,3 +448,35 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)) -> RunDetail:
     if run is None:
         raise HTTPException(status_code=404, detail="Simulation run not found")
     return run_detail(run)
+
+
+@router.post("/{run_id}/cancel", response_model=RunDetail)
+async def cancel_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
+) -> RunDetail:
+    """Withdraw a run that is still ``queued`` — most often one a dead or missing worker
+    was never going to claim.
+
+    Not a DELETE, and not available once a run leaves ``queued``: see the module
+    docstring and invariant 5. A run already ``running`` has a worker to signal, not a
+    queue entry to drop, and is out of scope here on purpose; a terminal run has nothing
+    left to stop.
+    """
+    run = await load_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Simulation run not found")
+    if run.status != "queued":
+        raise SimulationRunNotCancellable(run_id, run.status)
+
+    await revoke(run)
+    run.status = "cancelled"
+    run.cancelled_by = actor
+    run.cancelled_at = datetime.now(timezone.utc)
+    run.assembly_notes = [
+        *(run.assembly_notes or []),
+        f"Cancelled by {actor} before a worker claimed it.",
+    ]
+    await db.commit()
+    return run_detail(await load_run(db, run_id) or run)

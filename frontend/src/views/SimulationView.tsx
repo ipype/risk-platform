@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SimApiError,
+  cancelRun,
   getRun,
   getRuns,
   getSimulationOptions,
@@ -174,6 +175,18 @@ export default function SimulationView() {
   async function onOpen(id: number) {
     try {
       setSelected(await getRun(id));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Only offered while a run is still queued — see the route docstring for why running
+  // and terminal runs are out of scope for this button.
+  async function onCancel(id: number) {
+    try {
+      const run = await cancelRun(id);
+      setSelected((s) => (s?.id === id ? run : s));
+      setRuns((list) => list.map((r) => (r.id === id ? { ...r, ...run } : r)));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -403,7 +416,7 @@ export default function SimulationView() {
         ) : (
           <ul className="sim-runs">
             {runs.map((r) => (
-              <li key={r.id}>
+              <li key={r.id} className="sim-run-row">
                 <button
                   className={selected?.id === r.id ? "sim-run-item active" : "sim-run-item"}
                   onClick={() => onOpen(r.id)}
@@ -414,6 +427,18 @@ export default function SimulationView() {
                     {new Date(r.created_at).toLocaleString()} · {r.risk_count} risks
                   </span>
                 </button>
+                {r.status === "queued" && (
+                  <button
+                    className="link danger sim-run-cancel"
+                    title="Cancel this queued run"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCancel(r.id);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -422,13 +447,19 @@ export default function SimulationView() {
 
       <section className="sim-result" aria-label="Result">
         {!selected && <div className="empty">Select a run, or start one.</div>}
-        {selected && <RunResult run={selected} />}
+        {selected && <RunResult run={selected} onCancel={onCancel} />}
       </section>
     </div>
   );
 }
 
-function RunResult({ run }: { run: RunDetail }) {
+function RunResult({
+  run,
+  onCancel,
+}: {
+  run: RunDetail;
+  onCancel: (id: number) => void;
+}) {
   if (run.status === "failed") {
     return (
       <>
@@ -437,12 +468,33 @@ function RunResult({ run }: { run: RunDetail }) {
       </>
     );
   }
+  if (run.status === "cancelled") {
+    return (
+      <>
+        <RunHeader run={run} />
+        <div className="empty">
+          Cancelled{run.cancelled_by ? ` by ${run.cancelled_by}` : ""}
+          {run.cancelled_at ? ` · ${new Date(run.cancelled_at).toLocaleString()}` : ""},
+          before a worker claimed it.
+        </div>
+      </>
+    );
+  }
   if (run.status !== "succeeded" || !run.result) {
     return (
       <>
         <RunHeader run={run} />
         <div className="empty">
-          {run.status === "queued" ? "Queued — waiting for a worker." : "Running…"}
+          {run.status === "queued" ? (
+            <>
+              Queued — waiting for a worker.
+              <button className="link danger sim-cancel-inline" onClick={() => onCancel(run.id)}>
+                Cancel this run
+              </button>
+            </>
+          ) : (
+            "Running…"
+          )}
         </div>
       </>
     );

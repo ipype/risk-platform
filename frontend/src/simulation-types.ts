@@ -10,7 +10,7 @@
  * the single owner of that shape and these interfaces follow it.
  */
 
-export type RunStatus = "queued" | "running" | "succeeded" | "failed";
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type Sampling = "lhs" | "mc";
 
 /* ------------------------------------------------------------------------- *
@@ -276,6 +276,8 @@ export interface RunSummary {
   finished_at: string | null;
   duration_ms: number | null;
   error: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
 }
 
 export interface RunDetail extends RunSummary {

@@ -107,6 +107,24 @@ class SimulationNotAssemblable(RiskPlatformError):
         )
 
 
+class SimulationRunNotCancellable(RiskPlatformError):
+    """The run is not in a state a cancel can act on.
+
+    Only a run still sitting in ``queued`` can be cancelled: nothing has started, and
+    revoking the task is enough to guarantee nothing ever will. A run already computing
+    has partial CPU sunk into it and a worker to signal, not just a queue entry to drop; a
+    run already terminal has nothing left to stop. Both are a different feature from this
+    one, not a wider version of it.
+    """
+
+    def __init__(self, run_id: int, status: str) -> None:
+        self.run_id = run_id
+        self.status = status
+        super().__init__(
+            f"Run {run_id} is '{status}', not 'queued', so it cannot be cancelled."
+        )
+
+
 class ScheduleGateBlocked(RiskPlatformError):
     """The schedule has not passed the DCMA 14-point gate (invariant 3).
 

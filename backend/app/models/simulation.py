@@ -4,6 +4,14 @@ One row per run, append-only (invariant 5). A run is never edited and never dele
 through the API: it is the record of what was asked, what came back, and who asked. Re-
 running writes a new row, exactly as a re-parse writes a new schedule version.
 
+The one narrow exception is cancellation. A run still sitting in ``queued`` has no result
+to protect — nothing has come back yet — so a human may move it straight to ``cancelled``
+via ``POST /simulations/{id}/cancel`` rather than leaving it stuck behind a worker that
+will never claim it. ``cancelled_by``/``cancelled_at`` record who and when, the same way
+every other decision on this row is attributed. Once a run leaves ``queued`` — running or
+terminal — it is exactly as immutable as this docstring always said; the cancel route
+refuses anything that isn't still ``queued``.
+
 What is stored, and why it is split the way it is:
 
 ``request_json`` holds the :class:`~app.sim.inputs.SimulationRequest` **minus the
@@ -46,11 +54,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
 
-#: Lifecycle. ``queued`` is written by the API, the rest by the worker.
-RUN_STATUSES = ("queued", "running", "succeeded", "failed")
+#: Lifecycle. ``queued`` is written by the API; ``running``/``succeeded``/``failed`` by
+#: the worker; ``cancelled`` by the API, and only starting from ``queued``.
+RUN_STATUSES = ("queued", "running", "succeeded", "failed", "cancelled")
 
 #: Terminal states. Nothing transitions out of these.
-TERMINAL_STATUSES = ("succeeded", "failed")
+TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 
 
 class SimulationRun(Base):
@@ -59,7 +68,7 @@ class SimulationRun(Base):
     __tablename__ = "simulation_run"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            "status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')",
             name="ck_simrun_status",
         ),
         CheckConstraint("iterations >= 100", name="ck_simrun_iterations"),
@@ -140,6 +149,15 @@ class SimulationRun(Base):
 
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: Set only by a cancel out of ``queued`` — never by the worker. Null on every other
+    #: run, including one that failed or succeeded. Kept apart from ``finished_at``/
+    #: ``error``, which mean "the engine reached a terminal state" and were never true for
+    #: a run the worker never touched.
+    cancelled_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_by: Mapped[str] = mapped_column(String(120), default="Unknown")
     created_at: Mapped[datetime] = mapped_column(

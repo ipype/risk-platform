@@ -127,3 +127,15 @@ export function getRuns(limit = 50): Promise<RunSummary[]> {
 export function getRun(id: number): Promise<RunDetail> {
   return fetch(`${BASE}/simulations/${id}`).then((r) => handle<RunDetail>(r));
 }
+
+/**
+ * Withdraw a run still sitting in ``queued`` — most often one a dead or missing worker
+ * was never going to claim. Not a delete: the row stays, now recording who withdrew it
+ * and when. Rejected with a structured 409 once the run has left ``queued``.
+ */
+export function cancelRun(id: number): Promise<RunDetail> {
+  return fetch(`${BASE}/simulations/${id}/cancel`, {
+    method: "POST",
+    headers: writeHeaders(),
+  }).then((r) => handle<RunDetail>(r));
+}

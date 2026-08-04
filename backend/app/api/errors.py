@@ -25,6 +25,7 @@ from app.core.errors import (
     ScopeInvalid,
     ScopeNotFound,
     SimulationNotAssemblable,
+    SimulationRunNotCancellable,
     UnsupportedScheduleFormat,
 )
 
@@ -130,6 +131,22 @@ async def _not_assemblable(
     )
 
 
+async def _run_not_cancellable(
+    request: Request, exc: SimulationRunNotCancellable
+) -> JSONResponse:
+    # 409, like the quant lock: the run exists and cancelling is a real verb, just not
+    # one this status accepts.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "simulation_run_not_cancellable",
+            str(exc),
+            run_id=exc.run_id,
+            status=exc.status,
+        ),
+    )
+
+
 async def _gate_blocked(request: Request, exc: ScheduleGateBlocked) -> JSONResponse:
     # 409, like the delete confirmation: the request is legitimate and the caller may make
     # it. What is missing is a decision — fix the schedule, or own the override.
@@ -179,6 +196,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(QuantEstimateInvalid, _quant_invalid)  # type: ignore[arg-type]
     app.add_exception_handler(QuantEstimateLocked, _quant_locked)  # type: ignore[arg-type]
     app.add_exception_handler(SimulationNotAssemblable, _not_assemblable)  # type: ignore[arg-type]
+    app.add_exception_handler(SimulationRunNotCancellable, _run_not_cancellable)  # type: ignore[arg-type]
     app.add_exception_handler(ScheduleGateBlocked, _gate_blocked)  # type: ignore[arg-type]
     app.add_exception_handler(ScopeNotFound, _scope_not_found)  # type: ignore[arg-type]
     app.add_exception_handler(ScopeInvalid, _scope_invalid)  # type: ignore[arg-type]
