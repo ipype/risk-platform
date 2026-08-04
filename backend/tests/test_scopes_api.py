@@ -240,6 +240,103 @@ class TestSubtree:
         assert r.status_code == 404
 
 
+class TestSubtreeRollup:
+    """`risk_count_subtree` on `GET /scopes` — design handoff, 2026-08-02, step 2."""
+
+    async def test_risk_count_subtree_sums_the_whole_branch(self, tmp_path) -> None:
+        from app.models.risk import Risk
+        from app.models.scope import ScopeNode
+
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{tmp_path/'rollup.db'}", future=True
+        )
+        Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with Session() as db:
+            portfolio = ScopeNode(kind="portfolio", name="A", created_by="test")
+            db.add(portfolio)
+            await db.flush()
+            program = ScopeNode(
+                kind="program", name="B", parent_id=portfolio.id, created_by="test"
+            )
+            db.add(program)
+            await db.flush()
+            project_1 = ScopeNode(
+                kind="project", name="C", parent_id=program.id, created_by="test"
+            )
+            project_2 = ScopeNode(
+                kind="project", name="D", parent_id=program.id, created_by="test"
+            )
+            db.add_all([project_1, project_2])
+            await db.flush()
+
+            # SQLite does not enforce these FKs without PRAGMA foreign_keys (REFERENCE.md
+            # gotcha), so a made-up subcategory_id is fine — this test is about the
+            # rollup arithmetic, not the RBS relationship.
+            db.add_all(
+                [
+                    Risk(
+                        scope_id=project_1.id,
+                        subcategory_id=1,
+                        seq=1,
+                        risk_code="X-001-0001",
+                        title="R1",
+                    ),
+                    Risk(
+                        scope_id=project_1.id,
+                        subcategory_id=1,
+                        seq=2,
+                        risk_code="X-001-0002",
+                        title="R2",
+                    ),
+                    Risk(
+                        scope_id=project_2.id,
+                        subcategory_id=1,
+                        seq=1,
+                        risk_code="X-001-0001",
+                        title="R3",
+                    ),
+                ]
+            )
+            await db.commit()
+            ids = {
+                "portfolio": portfolio.id,
+                "program": program.id,
+                "p1": project_1.id,
+                "p2": project_2.id,
+            }
+
+        app = FastAPI()
+        register_exception_handlers(app)
+        app.include_router(scopes_route.router)
+
+        async def override_get_db():
+            async with Session() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = override_get_db
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.get("/scopes")
+        await engine.dispose()
+
+        rows = {row["id"]: row for row in r.json()}
+        assert rows[ids["p1"]]["risk_count"] == 2
+        assert rows[ids["p1"]]["risk_count_subtree"] == 2
+        assert rows[ids["p2"]]["risk_count_subtree"] == 1
+        assert rows[ids["program"]]["risk_count"] == 0
+        assert rows[ids["program"]]["risk_count_subtree"] == 3
+        assert rows[ids["portfolio"]]["risk_count_subtree"] == 3
+
+    async def test_a_leaf_with_no_risks_has_subtree_zero(self, client) -> None:
+        node = await client.post("/scopes", json={"kind": "project", "name": "Empty"})
+        rows = (await client.get("/scopes")).json()
+        row = next(r for r in rows if r["id"] == node.json()["id"])
+        assert row["risk_count_subtree"] == 0
+
+
 class TestUniqueCode:
     async def test_duplicate_codes_are_refused(self, client) -> None:
         await client.post(

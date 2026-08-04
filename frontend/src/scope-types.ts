@@ -37,6 +37,8 @@ export interface ScopeNode {
   created_at: string;
   /** Rows owned directly. Zero on programs and portfolios by construction. */
   risk_count: number;
+  /** `risk_count` rolled up through this node and its subtree — what the sidebar shows. */
+  risk_count_subtree: number;
   schedule_file_count: number;
   run_count: number;
   child_count: number;

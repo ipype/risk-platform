@@ -59,6 +59,15 @@ class ScopeRead(BaseModel):
     run_count: int = 0
     child_count: int = 0
 
+    #: `risk_count` rolled up through this node and everything beneath it — what the
+    #: sidebar shows, so "Northline Expansion" reads the total under it rather than 0.
+    #: Computed here rather than walked client side on every render (design handoff,
+    #: 2026-08-02). Only `GET /scopes` has the full tree to roll up against; the
+    #: single-node write endpoints below fall back to this node's own `risk_count`,
+    #: which is exact for a just-created leaf and a safe floor everywhere else — none of
+    #: those responses feed the sidebar directly, `reload()` does that with a fresh list.
+    risk_count_subtree: int = 0
+
 
 class ScopeCreate(BaseModel):
     kind: str = Field(..., examples=["project"])
@@ -92,7 +101,47 @@ async def _counts(db: AsyncSession) -> dict[int, dict[str, int]]:
     return out
 
 
-def _read(node: ScopeNode, counts: dict[int, dict[str, int]]) -> ScopeRead:
+def _subtree_risk_counts(
+    nodes: list[ScopeNode], counts: dict[int, dict[str, int]]
+) -> dict[int, int]:
+    """Direct `risk_count` summed through each node's subtree, post-order.
+
+    Same one-query-and-a-dictionary-walk shape as `descendant_ids` in
+    `app/services/scope.py`, for the reason documented there: a hundred-node tree is one
+    query and a walk, and a recursive CTE would only start paying for itself at a size
+    this platform is not at. `visiting` guards a hand-edited cycle the API cannot write —
+    it stops the walk rather than recursing forever, the same posture `descendant_ids`
+    takes.
+    """
+    children: dict[int | None, list[int]] = {}
+    for n in nodes:
+        children.setdefault(n.parent_id, []).append(n.id)
+
+    totals: dict[int, int] = {}
+    visiting: set[int] = set()
+
+    def total(node_id: int) -> int:
+        if node_id in totals:
+            return totals[node_id]
+        if node_id in visiting:
+            return 0
+        visiting.add(node_id)
+        own = counts.get(node_id, {}).get("risk_count", 0)
+        rolled = own + sum(total(child_id) for child_id in children.get(node_id, ()))
+        visiting.discard(node_id)
+        totals[node_id] = rolled
+        return rolled
+
+    for n in nodes:
+        total(n.id)
+    return totals
+
+
+def _read(
+    node: ScopeNode,
+    counts: dict[int, dict[str, int]],
+    subtree_counts: dict[int, int] | None = None,
+) -> ScopeRead:
     mine = counts.get(node.id, {})
     return ScopeRead(
         id=node.id,
@@ -109,6 +158,7 @@ def _read(node: ScopeNode, counts: dict[int, dict[str, int]]) -> ScopeRead:
         schedule_file_count=mine.get("schedule_file_count", 0),
         run_count=mine.get("run_count", 0),
         child_count=mine.get("child_count", 0),
+        risk_count_subtree=(subtree_counts or {}).get(node.id, mine.get("risk_count", 0)),
     )
 
 
@@ -127,7 +177,8 @@ async def list_scopes(db: AsyncSession = Depends(get_db)) -> list[ScopeRead]:
         await db.commit()
         nodes = await load_tree(db)
     counts = await _counts(db)
-    return [_read(n, counts) for n in nodes]
+    subtree_counts = _subtree_risk_counts(nodes, counts)
+    return [_read(n, counts, subtree_counts) for n in nodes]
 
 
 @router.post("", response_model=ScopeRead, status_code=201)

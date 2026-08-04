@@ -190,15 +190,22 @@ export function ScopeTree({ tree, scopeId, onSelect, onCreate, onEdit }: ScopeTr
               {node.name}
             </span>
 
-            {node.code ? <span className="scopecode">{node.code}</span> : null}
+            {/* Codes cost ~30px per row and only earn that space on the row that's
+                already claiming attention — everywhere else they're the difference
+                between "Southern Loop 1/2/3" being distinguishable and all three
+                reading "South…" (design handoff, 2026-08-02). */}
+            {node.code && selected ? <span className="scopecode">{node.code}</span> : null}
             {node.is_default ? (
               <span className="scopedefault" title="Default project — unscoped work lands here">
                 {"\u2605"}
               </span>
             ) : null}
-            {node.risk_count > 0 ? (
-              <span className="scopecount" title={`${node.risk_count} risk(s)`}>
-                {node.risk_count}
+            {node.risk_count_subtree > 0 ? (
+              <span
+                className="scopecount"
+                title={`${node.risk_count_subtree} risk(s) in this scope and below`}
+              >
+                {node.risk_count_subtree}
               </span>
             ) : null}
 

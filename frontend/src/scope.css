@@ -19,6 +19,12 @@
   position: sticky;
   top: 0;
   max-height: 100vh;
+  /* The rail is the only scroller (design handoff, 2026-08-02). Do not put overflow
+     back on `.scopeside-body`: a header, tree and footer as flex siblings with an inner
+     scroller on one of them collapses that child to a fraction of its content height —
+     `min-height: 0` on the scrolling child absorbs the whole flex deficit. Every child
+     here stays natural height and the rail itself scrolls as one piece. */
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   background: var(--card);
@@ -42,8 +48,6 @@
 }
 .scopeside-head .spacer { flex: 1; }
 .scopeside-body {
-  flex: 1;
-  overflow: auto;
   padding: 8px 6px 16px;
 }
 .scopeside-close { display: none; }
