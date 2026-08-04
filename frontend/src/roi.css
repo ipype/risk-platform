@@ -1,0 +1,456 @@
+/* Mitigation ROI. Prefixed `roi-` and self-contained, matching the `mit-`, `qnt-`, `map-`
+   and `mtx-` convention: nothing here cascades out, and nothing outside is relied on
+   beyond the shared `.btn` / `.link` / `.error` primitives in index.css.
+
+   One colour decision runs through the file. Baseline is grey and treated is blue, and
+   *worse* is amber rather than red — a package that increased a number is a finding to
+   read, not an error to fix, and red would send people looking for a bug. */
+
+.roi-view {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+}
+
+@media (max-width: 1000px) {
+  .roi-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .roi-list {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+}
+
+.roi-boot,
+.roi-empty {
+  color: var(--muted, #6b7078);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+/* ------------------------------------------------------------------------- the rail */
+
+.roi-rail {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.roi-rail-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e8e8e2;
+  background: #fbfbf9;
+}
+.roi-rail-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4a4f57;
+}
+
+.roi-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.roi-form label,
+.roi-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #4a4f57;
+}
+.roi-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.roi-form input,
+.roi-form select,
+.roi-inline select {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 6px;
+  border: 1px solid #d0d0c8;
+  border-radius: 4px;
+  background: #fff;
+  min-width: 0;
+}
+.roi-form input:disabled {
+  background: #f2f2ee;
+  color: #9a9a94;
+}
+.roi-formrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.roi-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.roi-listbtn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #f0f0ea;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.roi-listbtn:hover {
+  background: #f7f7f3;
+}
+.roi-listbtn.active {
+  background: #eef4fb;
+  box-shadow: inset 3px 0 0 #2f6fb2;
+}
+.roi-listname {
+  font-size: 13px;
+  font-weight: 600;
+  color: #23262b;
+}
+.roi-listmeta {
+  font-size: 11px;
+  color: #6b7078;
+}
+
+/* ------------------------------------------------------------------------- the main */
+
+.roi-main {
+  min-width: 0;
+}
+.roi-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.roi-title {
+  margin: 0;
+  font-size: 18px;
+}
+.roi-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #6b7078;
+}
+
+.roi-banner {
+  border: 1px solid #d8d8d2;
+  border-left-width: 3px;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  background: #fbfbf9;
+}
+.roi-banner.error {
+  border-left-color: #b23a2f;
+  background: #fdf3f2;
+}
+.roi-banner.warn {
+  border-left-color: #b8860b;
+  background: #fdf9ee;
+}
+.roi-banner ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.roi-warnings {
+  margin: 0 0 12px;
+  padding: 8px 12px 8px 30px;
+  border: 1px solid #e5d3a3;
+  border-left: 3px solid #b8860b;
+  border-radius: 4px;
+  background: #fdf9ee;
+  font-size: 13px;
+  color: #4a4235;
+}
+.roi-warnings li + li {
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------------- the cards */
+
+.roi-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.roi-card {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+.roi-card.muted {
+  background: #fbfbf9;
+}
+.roi-card.worse {
+  border-color: #e5d3a3;
+  background: #fdfbf5;
+}
+/* The cost card is separated on purpose: deterministic money and a percentile of a
+   distribution are different kinds of number and must not read as a row to be summed. */
+.roi-card.cost {
+  border-style: dashed;
+  background: #fbfbf9;
+}
+.roi-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4a4f57;
+}
+.roi-beforeafter {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.roi-beforeafter > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.roi-arrow {
+  color: #9a9a94;
+  font-size: 16px;
+}
+.roi-label {
+  font-size: 11px;
+  color: #6b7078;
+}
+.roi-figure {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: #23262b;
+}
+.roi-headline {
+  margin: 10px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f6b3f;
+}
+.roi-headline.worse {
+  color: #8a6410;
+}
+.roi-pct {
+  font-weight: 400;
+  color: #6b7078;
+}
+.roi-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6b7078;
+}
+.roi-note.warn {
+  color: #8a6410;
+}
+.roi-costrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.roi-costrow.strong {
+  border-top: 1px solid #e8e8e2;
+  margin-top: 6px;
+  padding-top: 6px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------------ the chart */
+
+.roi-section {
+  margin-bottom: 24px;
+}
+.roi-section h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.roi-chart {
+  margin: 0;
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+.roi-chart svg {
+  width: 100%;
+  height: auto;
+}
+.roi-grid {
+  stroke: #eeeee8;
+  stroke-width: 1;
+}
+.roi-axis {
+  fill: #6b7078;
+  font-size: 10px;
+}
+.roi-curve {
+  stroke-width: 2;
+}
+.roi-curve.before {
+  stroke: #8b8f96;
+  stroke-dasharray: 5 3;
+}
+.roi-curve.after {
+  stroke: #2f6fb2;
+}
+.roi-gap {
+  stroke: #b8860b;
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.35;
+}
+.roi-dot.before {
+  fill: #8b8f96;
+}
+.roi-dot.after {
+  fill: #2f6fb2;
+}
+.roi-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 6px 4px 2px;
+  font-size: 11px;
+  color: #6b7078;
+}
+.roi-key::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+.roi-key.before::before {
+  background: #8b8f96;
+}
+.roi-key.after::before {
+  background: #2f6fb2;
+}
+.roi-key.gap::before {
+  background: #b8860b;
+}
+
+/* ------------------------------------------------------------------------ the tables */
+
+.roi-tablewrap {
+  overflow-x: auto;
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+}
+.roi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.roi-table th,
+.roi-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid #f0f0ea;
+  vertical-align: top;
+}
+.roi-table thead th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4a4f57;
+  background: #fbfbf9;
+  white-space: nowrap;
+}
+.roi-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.roi-table .strong {
+  font-weight: 600;
+}
+.roi-table tbody tr.worse {
+  background: #fdfbf5;
+}
+.roi-table tbody th {
+  font-weight: 400;
+}
+.roi-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #6b7078;
+}
+.roi-title {
+  display: block;
+  color: #23262b;
+}
+
+.roi-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: #f0f0ea;
+  color: #4a4f57;
+  white-space: nowrap;
+}
+.roi-badge.retired {
+  background: #e7f1e9;
+  color: #1f6b3f;
+}
+.roi-badge.reduced {
+  background: #eef4fb;
+  color: #2f6fb2;
+}
+.roi-badge.increased,
+.roi-badge.entered {
+  background: #fdf3e0;
+  color: #8a6410;
+}
+
+/* ------------------------------------------------------------------------- the basis */
+
+/* Never collapsed. Every figure on this screen rests on a stated approximation, and a
+   caveat behind a toggle is a caveat nobody reads. */
+.roi-basis {
+  border: 1px solid #e8e8e2;
+  border-radius: 8px;
+  background: #fbfbf9;
+  padding: 12px 14px;
+}
+.roi-basis ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #4a4f57;
+}
+.roi-basis li + li {
+  margin-top: 6px;
+}

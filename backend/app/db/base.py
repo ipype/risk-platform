@@ -9,6 +9,7 @@ from app.models.mitigation import (  # noqa: F401
     MitigationPlanRisk,
 )
 from app.models.rbs import RbsCategory, RbsSubcategory  # noqa: F401
+from app.models.roi import MitigationRoi  # noqa: F401
 from app.models.risk import Risk  # noqa: F401
 from app.models.scope import ScopeNode  # noqa: F401
 from app.models.schedule import (  # noqa: F401

@@ -29,7 +29,7 @@ from app.models.risk import Risk
 from app.models.schedule import DcmaRun, ScheduleFile, ScheduleVersion
 from app.models.simulation import SimulationRun
 from app.services import quant_validation as qv
-from app.services.scope import resolve_read_scope, resolve_write_scope
+from app.services.scope import descendant_ids, resolve_read_scope, resolve_write_scope
 from app.services.sim_assembly import Assembly, assemble, latest_dcma
 from app.services.sim_dispatch import dispatch
 from app.services.sim_execute import load_run
@@ -282,21 +282,48 @@ async def options(
 # --------------------------------------------------------------------------------------
 
 
-async def _assemble(db: AsyncSession, payload: RunRequest) -> Assembly:
+async def _assemble(
+    db: AsyncSession, payload: RunRequest, scope_ids: list[int]
+) -> Assembly:
     return await assemble(
         db,
         config=payload.to_config(),
         scenario=payload.scenario,
         version_id=payload.schedule_version_id,
         gate_override=payload.gate_override,
+        scope_ids=scope_ids,
     )
+
+
+async def run_scope_ids(db: AsyncSession, scope_id: int | None) -> list[int]:
+    """The register a run reads: the project it belongs to, and nothing else.
+
+    Resolved through ``resolve_write_scope`` rather than ``resolve_read_scope`` because a
+    run is *authored* against a project — the same rule that decides where the row lands
+    has to decide what it read, or the two can disagree. A project has no children, so
+    the list is one id; going through ``descendant_ids`` anyway means a future scope kind
+    beneath project would not need this call site changed.
+    """
+    scope = await resolve_write_scope(db, scope_id)
+    return await descendant_ids(db, scope.id)
 
 
 @router.post("/preview", response_model=PreviewResponse)
 async def preview(
-    payload: RunRequest, db: AsyncSession = Depends(get_db)
+    payload: RunRequest,
+    db: AsyncSession = Depends(get_db),
+    scope_id: int | None = Query(
+        default=None,
+        description="Project this run would belong to. Omitted means the default project.",
+    ),
 ) -> PreviewResponse:
-    assembly = await _assemble(db, payload)
+    """Deliberately takes the same scope as ``POST /simulations``.
+
+    A preview that read a wider register than the run would is worse than no preview: the
+    risk count, the exclusions and the fingerprint would all describe a different run from
+    the one the button starts.
+    """
+    assembly = await _assemble(db, payload, await run_scope_ids(db, scope_id))
     return PreviewResponse(
         risk_count=assembly.risk_count,
         mapped_risk_count=assembly.mapped_risk_count,
@@ -308,26 +335,22 @@ async def preview(
     )
 
 
-@router.post("", response_model=RunDetail, status_code=201)
-async def create_run(
-    payload: RunRequest,
-    db: AsyncSession = Depends(get_db),
-    actor: str = Header(default="Unknown", alias="X-Actor"),
-    scope_id: int | None = Query(
-        default=None,
-        description="Project this run belongs to. Omitted means the default project.",
-    ),
-) -> RunDetail:
-    """Assemble, persist and queue. The assembly happens before the row is written.
+async def start_run(
+    db: AsyncSession, payload: RunRequest, *, scope_id: int, actor: str
+) -> SimulationRun:
+    """Assemble, persist and queue one run. The assembly happens before the row is written.
 
     A run that could never have been assembled is not a failed run, it is a rejected
     request: writing it down would fill the history with rows that never had inputs.
+
+    Shared with the ROI routes rather than duplicated there. A matched pair is two runs
+    that differ in exactly one field, and the cheapest way to keep that true is for both
+    of them to be born in the same function.
     """
-    scope = await resolve_write_scope(db, scope_id)
-    assembly = await _assemble(db, payload)
+    assembly = await _assemble(db, payload, await descendant_ids(db, scope_id))
 
     run = SimulationRun(
-        scope_id=scope.id,
+        scope_id=scope_id,
         name=payload.name or "",
         status="queued",
         scenario=payload.scenario,
@@ -357,8 +380,21 @@ async def create_run(
     await dispatch(db, run)
     # Reloaded rather than refreshed: ``refresh`` leaves the deferred payloads unloaded,
     # and the eager path has just written a result into one of them.
-    fresh = await load_run(db, run.id)
-    return _detail(fresh or run)
+    return await load_run(db, run.id) or run
+
+
+@router.post("", response_model=RunDetail, status_code=201)
+async def create_run(
+    payload: RunRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Header(default="Unknown", alias="X-Actor"),
+    scope_id: int | None = Query(
+        default=None,
+        description="Project this run belongs to. Omitted means the default project.",
+    ),
+) -> RunDetail:
+    scope = await resolve_write_scope(db, scope_id)
+    return run_detail(await start_run(db, payload, scope_id=scope.id, actor=actor))
 
 
 # --------------------------------------------------------------------------------------
@@ -366,7 +402,7 @@ async def create_run(
 # --------------------------------------------------------------------------------------
 
 
-def _detail(run: SimulationRun) -> RunDetail:
+def run_detail(run: SimulationRun) -> RunDetail:
     return RunDetail(
         **RunSummary.model_validate(run).model_dump(),
         gate_override_reason=run.gate_override_reason,
@@ -402,4 +438,4 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)) -> RunDetail:
     run = await load_run(db, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Simulation run not found")
-    return _detail(run)
+    return run_detail(run)

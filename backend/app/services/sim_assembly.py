@@ -45,6 +45,7 @@ from app.models.risk import Risk
 from app.models.schedule import (
     DcmaRun,
     ScheduleActivity,
+    ScheduleFile,
     ScheduleRelationship,
     ScheduleVersion,
 )
@@ -526,8 +527,21 @@ async def assemble(
     scenario: str = "pre_mitigation",
     version_id: int | None = None,
     gate_override: bool = False,
+    scope_ids: Sequence[int] | None = None,
 ) -> Assembly:
-    """Build a runnable request, or explain precisely why there isn't one."""
+    """Build a runnable request, or explain precisely why there isn't one.
+
+    ``scope_ids`` narrows the register to one project and everything under it. ``None``
+    means unfiltered, which is what a single-project install and every pre-hierarchy
+    caller get. It is a parameter rather than a lookup because assembly does not know
+    whose run this is — the route does, and it is the route that resolved the scope the
+    run row will carry.
+
+    Passing it is not optional in practice. Without the filter a run assembled for one
+    project reads every project's estimates, and the number that comes out is a
+    contingency for a portfolio nobody asked about. That is invisible in the result: the
+    risk count is simply larger than the register the analyst was looking at.
+    """
     if scenario not in qv.SCENARIOS:
         raise SimulationNotAssemblable(
             [f"Unknown scenario {scenario!r}. Expected one of {', '.join(qv.SCENARIOS)}."]
@@ -551,6 +565,20 @@ async def assemble(
             raise SimulationNotAssemblable(
                 [f"Schedule version {version_id} does not exist."]
             )
+        if scope_ids is not None:
+            owner = await db.scalar(
+                select(ScheduleFile.scope_id).where(ScheduleFile.id == version.file_id)
+            )
+            if owner not in set(scope_ids):
+                # Same failure as an out-of-scope estimate, one level up: the register
+                # would be this project's and the network somebody else's, and every
+                # mapping between them would silently resolve to nothing.
+                raise SimulationNotAssemblable(
+                    [
+                        f"Schedule version {version_id} belongs to a different project "
+                        "from the one this run is for."
+                    ]
+                )
         dcma = await latest_dcma(db, version_id)
         _check_gate(version_id, dcma, gate_override)
         schedule, sched_notes, calendar_set = await build_schedule_input(db, version_id)
@@ -580,15 +608,19 @@ async def assemble(
         )
 
     # -- estimates, drivers and mappings, all keyed by risk ------------------------
-    estimates = list(
-        (
-            await db.scalars(
-                select(RiskQuantEstimate)
-                .where(RiskQuantEstimate.scenario == scenario)
-                .order_by(RiskQuantEstimate.risk_id)
-            )
-        ).all()
+    estimate_stmt = (
+        select(RiskQuantEstimate)
+        .where(RiskQuantEstimate.scenario == scenario)
+        .order_by(RiskQuantEstimate.risk_id)
     )
+    if scope_ids is not None:
+        # Scope lives on ``risk``; the estimate hangs off it. Joined rather than
+        # subqueried so the filter is one statement and cannot be forgotten by a caller
+        # that builds the risk map separately below.
+        estimate_stmt = estimate_stmt.join(
+            Risk, Risk.id == RiskQuantEstimate.risk_id
+        ).where(Risk.scope_id.in_(list(scope_ids)))
+    estimates = list((await db.scalars(estimate_stmt)).all())
     if not estimates:
         raise SimulationNotAssemblable(
             [

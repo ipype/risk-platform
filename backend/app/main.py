@@ -19,6 +19,7 @@ from app.api.routes import (
     quant,
     rbs,
     risks,
+    roi,
     schedules,
     scopes,
     simulations,
@@ -63,6 +64,7 @@ app.include_router(schedules.router)
 app.include_router(mappings.router)
 app.include_router(quant.router)
 app.include_router(simulations.router)
+app.include_router(roi.router)
 
 
 @app.get("/", tags=["root"])

@@ -10,6 +10,7 @@ import GanttView from "./views/GanttView";
 import QuantifyView from "./views/QuantifyView";
 import MitigateView from "./views/MitigateView";
 import SimulationView from "./views/SimulationView";
+import RoiView from "./views/RoiView";
 import { ScopeProvider, useScope } from "./ScopeContext";
 import { ScopeBar } from "./components/scope/ScopeBar";
 import { ScopeEditPanel } from "./components/scope/ScopeEditPanel";
@@ -25,6 +26,7 @@ type View =
   | "quantify"
   | "mitigate"
   | "simulate"
+  | "roi"
   | "schedule"
   | "gantt"
   | "mapping"
@@ -146,6 +148,9 @@ function Shell() {
           <button className={view === "simulate" ? "navlink active" : "navlink"} onClick={() => setView("simulate")}>
             Simulate
           </button>
+          <button className={view === "roi" ? "navlink active" : "navlink"} onClick={() => setView("roi")}>
+            ROI
+          </button>
           <button className={view === "schedule" ? "navlink active" : "navlink"} onClick={() => setView("schedule")}>
             Schedule
           </button>
@@ -187,6 +192,7 @@ function Shell() {
           {view === "quantify" && <QuantifyView />}
           {view === "mitigate" && <MitigateView />}
           {view === "simulate" && <SimulationView />}
+          {view === "roi" && <RoiView />}
           {view === "schedule" && <ScheduleView />}
           {view === "gantt" && <GanttView />}
           {view === "mapping" && <MappingView />}

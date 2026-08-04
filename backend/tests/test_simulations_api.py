@@ -61,7 +61,16 @@ async def _seed(session) -> None:
     # Every authored row belongs to a project (migration 0014). One scope, seeded
     # explicitly rather than left to the API's get-or-create, so these tests keep
     # asserting about rows they put there themselves.
-    session.add(ScopeNode(id=1, kind="project", name="Test project", created_by="test"))
+    #
+    # ``is_default`` matters from 4.5 onward: assembly is scope-filtered, and a request
+    # that names no scope resolves to the default project. Without the flag the seeded
+    # project would not be it, the route would get-or-create a second one, and every run
+    # here would assemble an empty register.
+    session.add(
+        ScopeNode(
+            id=1, kind="project", name="Test project", is_default=True, created_by="test"
+        )
+    )
     session.add(RbsCategory(id=1, code="TEC", name="Technical"))
     session.add(RbsSubcategory(id=1, category_id=1, code="DES", name="Design"))
     session.add(Risk(
