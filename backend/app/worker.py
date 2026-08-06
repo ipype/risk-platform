@@ -22,6 +22,18 @@ from celery import Celery
 
 from app.core.config import settings
 
+#: Imported for its side effect: it registers *every* model on the shared metadata.
+#:
+#: The worker's ``include`` below pulls in one task module, and that module's import chain
+#: reaches only the tables it happens to touch — eighteen of them, without ``scope_node``,
+#: which nothing outside the API routers imports. SQLAlchemy resolves a ``ForeignKey`` by
+#: looking its target up in the metadata at the moment something first needs it, so a
+#: missing table object is not an import error. It is a ``NoReferencedTableError`` raised
+#: later, from whichever query first forces resolution, in the worker only, and not at all
+#: under a query simple enough to avoid the join. That is why this line looks unnecessary
+#: and is not.
+import app.db.base  # noqa: F401,E402  (must follow settings; registers all tables)
+
 celery_app = Celery(
     "risk_platform",
     broker=settings.redis_url,

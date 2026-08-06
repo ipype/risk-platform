@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     simulation_eager: bool = False
     #: Celery hard time limit for one run, in seconds.
     simulation_time_limit_seconds: int = 3600
+    #: Refuse to queue a run when no worker answers the broker. A run queued into an
+    #: empty cluster is indistinguishable from one that is merely slow, and the analyst
+    #: finds out by waiting. Turn off only if the control channel is unreliable in a
+    #: deployment where the workers themselves are not.
+    simulation_require_worker: bool = True
+    #: How long to wait for a worker to answer the preflight ping.
+    simulation_worker_ping_seconds: float = 1.0
 
     @property
     def cors_origins(self) -> list[str]:

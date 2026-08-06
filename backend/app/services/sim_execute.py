@@ -31,6 +31,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
@@ -78,17 +79,72 @@ async def load_run(db: AsyncSession, run_id: int) -> SimulationRun | None:
     )
 
 
-async def execute(db: AsyncSession, run_id: int) -> SimulationRun | None:
-    """Run one queued simulation to completion. Never raises for a domain failure."""
-    run = await load_run(db, run_id)
-    if run is None:
-        return None
-    if run.status in TERMINAL_STATUSES:
-        return run
+#: The only statuses a failure may be written over. A terminal run has an answer somebody
+#: may already have quoted, and invariant 5 says that record is append-only.
+CLAIMABLE_STATUSES = ("queued", "running")
 
-    run.status = "running"
-    run.started_at = _now()
+#: ``error`` is text, but a driver traceback repeated across a thousand failed runs is not
+#: worth the table it sits in.
+_ERROR_MAX = 2000
+
+
+async def record_failure(db: AsyncSession, run_id: int, message: str) -> bool:
+    """Mark a run failed with the narrowest write that can reach the row.
+
+    Deliberately not an ORM flush of a loaded object. This is the path taken when loading
+    the object is the thing that failed — a column the model declares and the database has
+    not got yet, a connection that dropped mid-``SELECT`` — and a flush would emit the
+    same broken statement a second time. ``UPDATE ... SET status, error, finished_at``
+    names three columns, so it survives a schema the rest of the model has run ahead of.
+
+    The ``WHERE`` clause carries the idempotence: a run that already reached a terminal
+    state is left exactly as it was, and the return value says whether anything moved.
+    """
+    await db.rollback()
+    result = await db.execute(
+        update(SimulationRun)
+        .where(
+            SimulationRun.id == run_id,
+            SimulationRun.status.in_(CLAIMABLE_STATUSES),
+        )
+        .values(status="failed", error=message[:_ERROR_MAX], finished_at=_now())
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
+    return bool(result.rowcount)
+
+
+async def execute(db: AsyncSession, run_id: int) -> SimulationRun | None:
+    """Run one queued simulation to completion.
+
+    Never raises for a *domain* failure: a bad request, a moved fingerprint or an engine
+    refusal is recorded on the run and the run comes back failed.
+
+    An *infrastructure* failure in the prologue — the row cannot be read, or cannot be
+    claimed — is recorded the same way and then re-raised, because the worker log is the
+    only place a traceback for it can usefully go. It is re-raised rather than swallowed
+    so that a broken deployment is loud; it is recorded before being re-raised so that a
+    run never sits in ``queued`` forever with nothing written against it, which is what
+    this function used to do for every exception in the three statements below.
+    """
+    try:
+        run = await load_run(db, run_id)
+        if run is None:
+            return None
+        if run.status in TERMINAL_STATUSES:
+            return run
+
+        run.status = "running"
+        run.started_at = _now()
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+        await record_failure(
+            db,
+            run_id,
+            "The run could not be started. The worker reached the database but could "
+            f"not claim the run: {type(exc).__name__}: {exc}",
+        )
+        raise
 
     started = time.perf_counter()
     try:
