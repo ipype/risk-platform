@@ -25,23 +25,15 @@ have fired.
   the width and reformat the tree once in a dedicated commit, or stop claiming the repo is
   formatted.
 - **No frontend test runner.** `CLAUDE.md` lists Vitest and Playwright;
-  `frontend/package.json` has neither. Seven deliveries running have now shipped their most
-  test-worthy pure functions validated only by throwaway harnesses: the Gantt's row
-  flattening and arrow geometry (2.4, 2026-07-30), `SCurve`/`Tornado`/`CriticalityTable`'s
-  arithmetic (4.1–4.3), `JointScatter`'s frontier and path construction (4.1 JCL), the
-  scope tree's fold/path/subtree/placement functions (4.7/4.8), and now `TreatmentEditor`'s
-  factor-bound validation and `ResidualTable`'s delta arithmetic (4.4, 2026-08-02). Adding
-  Vitest is a stack decision against a `package.json` deliberately held at two runtime
-  dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
-- **`sim_assembly.assemble()` is not scope-filtered.** 4.8's read-filtering pass covered
-  `list_risks`, `list_versions`, `list_runs`, `options`, both matrix exports, the register
-  export, and quant triage/coverage — it did not touch simulation assembly itself. A run
-  requested for one project currently reads every project's `risk_quant_estimate` rows
-  (and, via mapping, every project's schedule risk-to-activity mappings). Pre-existing
-  since before scoping landed; surfaced acutely by 4.4 (2026-08-02) because a mitigation
-  plan's residual register is inherently per-project, so an unscoped post-mitigation run
-  would read other projects' residuals into a supposedly single-project ROI. **Should
-  block the start of 4.5** — see `claude/ACTIVE.md`.
+  `frontend/package.json` has neither. Eight deliveries running have now shipped their
+  most test-worthy pure functions or components validated only by throwaway harnesses or
+  by `tsc`/`vite build`: the Gantt's row flattening and arrow geometry (2.4, 2026-07-30),
+  `SCurve`/`Tornado`/`CriticalityTable`'s arithmetic (4.1–4.3), `JointScatter`'s frontier
+  and path construction (4.1 JCL), the scope tree's fold/path/subtree/placement functions
+  (4.7/4.8), `TreatmentEditor`'s factor-bound validation and `ResidualTable`'s delta
+  arithmetic (4.4, 2026-08-02), and now `ReportView.tsx` (4.6, 2026-08-06, 359 lines).
+  Adding Vitest is a stack decision against a `package.json` deliberately held at two
+  runtime dependencies, which is why it keeps deferring. See `REFERENCE.md` 2026-07-30.
 
 **Resolved 2026-08-01**: single- vs multi-tenant data model. Decided as a strict
 portfolio → program → project tree, one parent per node, no project shared across programs.
@@ -56,12 +48,19 @@ matrix exports, the register export, `quant/triage`, `quant/coverage`. 12 tests 
 `test_scoped_reads.py`, reverted against unfiltered code to confirm 4 of them fail without
 the filter. The window this created — a second project's rows indistinguishable from the
 first's in every list endpoint — no longer exists for those endpoints. (Simulation
-assembly was outside this pass — see the new Blocked item above.)
+assembly was outside this pass — see the item below, now also resolved.)
+
+**Resolved, confirmed 2026-08-06**: `sim_assembly.assemble()` was not scope-filtered — this
+had blocked the start of 4.5 (re-simulation ROI). It is fixed on `main`: `assemble()` takes
+a real `scope_ids` parameter that filters both the schedule-file join and the risk query.
+4.5 has since shipped in full (`MitigationRoi` model, migration `0016`, `roi.py` service,
+ROI routes and frontend). Which session closed this isn't reflected in `claude/ACTIVE.md`'s
+history — it was found stale rather than tracked live. See `claude/ACTIVE.md` Notes and
+Watch items below.
 
 ## Subsystems not yet designed in depth
 
 - Living risk register and the realized-outcome learning loop.
-- Report export: template engine, section registry, xlsx/pptx/pdf targets.
 - Workshop facilitation mode: Delphi anonymous voting, convergence detection, quorum.
 - `inserted_activity` mapping UI: API and row-level editing exist (2026-07-29), but there
   is no predecessor/successor picker in the workbench yet — needs a relationship browser.
@@ -77,8 +76,15 @@ assembly was outside this pass — see the new Blocked item above.)
 **Resolved 2026-08-02**: mitigation planning (actions, cost, declared residual). Shipped
 as 4.4 — `mitigation_plan` / `mitigation_plan_risk`, materialising into
 `RiskQuantEstimate.scenario="post_mitigation"`. Re-simulation ROI (the "with
-re-simulation ROI" half of the original line) remains open as 4.5, now the `ACTIVE.md`
-build target, and depends on the scope-filtering fix above.
+re-simulation ROI" half of the original line) shipped as 4.5 — see Blocked above.
+
+**Resolved (html/xlsx) 2026-08-06**: report export. Shipped as 4.6 —
+`backend/app/services/report/` (data snapshot / section registry / block model /
+HTML + XLSX renderers), `GET /reports/sections` + `/report.json|html|xlsx`, and
+`ReportView.tsx`. The block model (`Paragraph`/`KeyValues`/`Table`/`Callout`/`MatrixBlock`)
+is renderer-agnostic by design, so a pptx or PDF target is a new renderer file against the
+same `Document`, not a rework. **Still open**: pptx and PDF renderers themselves — nobody
+has asked for them yet, and neither is scheduled.
 
 ## Watch items
 
@@ -103,14 +109,17 @@ build target, and depends on the scope-filtering fix above.
 - `claude/ref/schedule.md` is at roughly 200 lines as of its first day. If the Gantt notes
   and the mapping notes both keep growing, split again on that seam rather than letting one
   file become the expensive one to open.
-- **`ACTIVE.md` drift, twice now.** 2026-08-01: three items marked "pending Sam's local
-  apply" had already been committed to `main`. 2026-08-02: recurred — three more pending
-  items and a stale test-count baseline (637 vs the real 649) both predated commits already
-  on `main`. Treat any "pending apply" line in `ACTIVE.md` older than the current session as
-  unconfirmed until checked against `main` — don't assume a prior session's TODO still
-  describes reality. Two occurrences is a pattern; if a third happens, this needs a
-  mechanical check (e.g. bootstrap diffs `ACTIVE.md`'s claimed test count against a fresh
-  clone) rather than a written reminder.
+- **`ACTIVE.md` drift, now confirmed four times.** 2026-08-01: three items marked "pending
+  Sam's local apply" had already been committed to `main`. 2026-08-02: recurred — three
+  more pending items and a stale test-count baseline (637 vs the real 649) both predated
+  commits already on `main`. 2026-08-06: recurred twice over — `ACTIVE.md` claimed 695
+  tests against a real 815, and listed the `sim_assembly` scope-filter gap as blocking 4.5
+  when it had already been fixed and 4.5 had already shipped. **This is no longer a
+  pattern worth a written reminder; it is the norm.** The mechanical check proposed after
+  the second occurrence was never built. Next session that opens `ACTIVE.md` should build
+  it before adding more work: a one-line bootstrap step that runs the real test suite (or
+  at minimum diffs `ACTIVE.md`'s claimed count against `pytest --collect-only -q | tail
+  -1` on a fresh clone) and flags a mismatch before anything else is read.
 - **New gotcha, 2026-08-02**: `sa.text("now()")` in a migration's `server_default` is not
   portable — SQLite has no `now()`, so such a migration can only be rendered offline, never
   executed under test. `sa.func.now()` compiles correctly on both dialects. 0014 already
@@ -187,7 +196,8 @@ build target, and depends on the scope-filtering fix above.
   left duplicated. Not scheduled — no WBS line yet.
 - **`result_json` payload size is growing.** ~84 kB at 10k iterations with the joint scatter
   included, roughly double pre-JCL. Fine for a JSONB column and a per-run fetch; worth
-  revisiting if P6's report export ends up embedding several runs' results at once.
+  revisiting now that 4.6's report export reads `result_json` back off the run for every
+  report — a report over several runs at once (a rollup-style report) would multiply this.
 - **Scope delete cascade is untested under Postgres.** `ScopeNode.parent_id` is
   `ondelete="RESTRICT"`, and the API's own refusal (children/rows in the way) makes the
   database-level behaviour mostly unreachable in practice — but "mostly" is doing work
@@ -216,3 +226,18 @@ build target, and depends on the scope-filtering fix above.
   save — an analyst finds out only after submitting that their numbers were silently
   not applied. Small: the `issues` array comes back in the residual preview and is
   shown per-row, just not inline in the editor at entry time.
+
+## Surfaced 2026-08-06
+
+- **No pptx or PDF report renderer.** 4.6 shipped HTML and XLSX. The block model
+  (`Document`/`Section`/`Paragraph`/`KeyValues`/`Table`/`Callout`/`MatrixBlock` in
+  `app/services/report/model.py`) was built renderer-agnostic specifically so either is a
+  new file against the same `Document`, not a rework of `data.py` or `sections.py`. Not
+  scheduled — nobody has asked for either format yet.
+- **No end-to-end route test exercises a *populated* mitigation/ROI report section.**
+  `test_reports_api.py` covers cost/schedule/basis through the live routes; the
+  mitigation section's populated state (a real `MitigationRoi` row, a real re-simulation
+  delta) is covered at the pure-section level in `test_report_sections.py` plus
+  `roi_service.compare`'s own suite, not through `/reports/report.*` end to end. Low risk
+  — the two halves are each covered, just not together — but worth closing if a report
+  bug ever surfaces in that specific seam.

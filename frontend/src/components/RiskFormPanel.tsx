@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
   Category,
+  DraftAction,
   FieldDef,
   HistoryEntry,
   MatrixConfig,
@@ -27,6 +28,9 @@ const ACTION_LABEL: Record<string, string> = {
   created: "created",
   updated: "edited",
   deleted: "deleted",
+  "mitigation added": "added an action",
+  "mitigation updated": "edited an action",
+  "mitigation removed": "removed an action",
 };
 
 interface FormState {
@@ -75,7 +79,10 @@ function scoresToStr(scores: Record<string, number> | null): Record<string, stri
 
 function fromRisk(r: Risk): FormState {
   return {
-    subcategory_prefix: r.risk_code.split("-").slice(0, 2).join("-"),
+    // Read from the field, not sliced out of the code. The code stopped carrying the
+    // taxonomy when it became <program>-<project>-<sequence>; slicing it now would put
+    // the program abbreviation in the subcategory dropdown.
+    subcategory_prefix: r.subcategory_prefix,
     title: r.title,
     description: r.description ?? "",
     causes: r.causes ?? "",
@@ -115,6 +122,7 @@ export default function RiskFormPanel({
   onSaved,
 }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [drafts, setDrafts] = useState<DraftAction[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -123,6 +131,7 @@ export default function RiskFormPanel({
   useEffect(() => {
     if (open) {
       setForm(editing ? fromRisk(editing) : emptyForm());
+      setDrafts([]);
       setError(null);
       setShowHistory(false);
       setHistory([]);
@@ -174,6 +183,7 @@ export default function RiskFormPanel({
     setSaving(true);
     setError(null);
     const common = {
+      subcategory_prefix: form.subcategory_prefix,
       title: form.title,
       description: form.description || null,
       causes: form.causes || null,
@@ -203,7 +213,13 @@ export default function RiskFormPanel({
       if (editing) {
         await updateRisk(editing.id, common as RiskUpdate);
       } else {
-        await createRisk({ subcategory_prefix: form.subcategory_prefix, ...common } as RiskCreate);
+        // The drafts ride along in the same request. `key` is a client-side handle for
+        // React and means nothing to the API, so it is dropped here rather than being
+        // silently ignored by the server.
+        await createRisk({
+          ...common,
+          actions: drafts.map(({ key: _key, ...action }) => action),
+        } as RiskCreate);
       }
       onSaved();
     } catch (e) {
@@ -213,7 +229,9 @@ export default function RiskFormPanel({
     }
   }
 
-  const canSave = form.title.trim() !== "" && (editing !== null || form.subcategory_prefix !== "");
+  const blankDraft = !editing && drafts.some((d) => !(d.action ?? "").trim());
+  const canSave =
+    form.title.trim() !== "" && form.subcategory_prefix !== "" && !blankDraft;
 
   function impactBlock(
     title: string,
@@ -272,23 +290,27 @@ export default function RiskFormPanel({
         </div>
 
         <div className="panel-body">
-          {editing ? (
+          {editing && (
             <div className="readonly">Risk ID: <strong>{editing.risk_code}</strong></div>
-          ) : (
-            <label>
-              Subcategory
-              <select value={form.subcategory_prefix} onChange={(e) => set("subcategory_prefix", e.target.value)}>
-                <option value="">Select…</option>
-                {categories.map((c) => (
-                  <optgroup key={c.code} label={`${c.code} — ${c.name}`}>
-                    {c.subcategories.map((s) => (
-                      <option key={s.prefix} value={s.prefix}>{s.prefix} — {s.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
           )}
+
+          {/* Editable on an existing risk too. It used to be create-only because the code
+              was built from it and changing it would have renumbered the register; the
+              code no longer encodes the taxonomy, so a miscategorised risk can be filed
+              correctly instead of being deleted and re-raised. */}
+          <label>
+            Subcategory
+            <select value={form.subcategory_prefix} onChange={(e) => set("subcategory_prefix", e.target.value)}>
+              <option value="">Select…</option>
+              {categories.map((c) => (
+                <optgroup key={c.code} label={`${c.code} — ${c.name}`}>
+                  {c.subcategories.map((s) => (
+                    <option key={s.prefix} value={s.prefix}>{s.prefix} — {s.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
 
           <label>Risk title<input value={form.title} onChange={(e) => set("title", e.target.value)} /></label>
           <label>Description<textarea value={form.description} onChange={(e) => set("description", e.target.value)} /></label>
@@ -299,11 +321,11 @@ export default function RiskFormPanel({
           {impactBlock("Current assessment", form.probability, (v) => set("probability", v), "impactScores", form.impactScores, curImp, curBand)}
           {impactBlock("Target (residual) assessment", form.targetProbability, (v) => set("targetProbability", v), "targetImpactScores", form.targetImpactScores, tgtImp, tgtBand)}
 
-          {editing ? (
-            <MitigationActions riskId={editing.id} />
-          ) : (
-            <p className="muted">Save the risk first, then reopen it to add mitigation actions.</p>
-          )}
+          <MitigationActions
+            riskId={editing ? editing.id : null}
+            drafts={drafts}
+            onDraftsChange={setDrafts}
+          />
 
           <div className="row">
             <label>
@@ -348,7 +370,7 @@ export default function RiskFormPanel({
               ) : (
                 <ul className="history-list">
                   {history.map((h) => (
-                    <li key={h.id} className={`history-item action-${h.action}`}>
+                    <li key={h.id} className={`history-item action-${h.action.replace(/\s+/g, "-")}`}>
                       <div className="history-head">
                         <strong>{h.actor}</strong> {ACTION_LABEL[h.action] ?? h.action}
                         <span className="history-time">{fmtTime(h.created_at)}</span>

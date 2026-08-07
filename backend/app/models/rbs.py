@@ -55,4 +55,11 @@ class RbsSubcategory(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    category: Mapped["RbsCategory"] = relationship(back_populates="subcategories")
+    #: Eager rather than lazy. ``Risk.subcategory_prefix`` needs the category code on every
+    #: register read, and a subcategory reached through the async session with a lazy
+    #: parent raises ``MissingGreenlet`` the moment anything touches it. The extra SELECT
+    #: is one query against a table with tens of rows, which is cheaper than every call
+    #: site remembering to eager-load it. Two rows of the RBS are the whole cost.
+    category: Mapped["RbsCategory"] = relationship(
+        back_populates="subcategories", lazy="selectin"
+    )

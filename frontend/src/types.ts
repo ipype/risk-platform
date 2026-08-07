@@ -10,7 +10,17 @@ export interface Category {
 }
 export interface Risk {
   id: number;
+  /** `<program>-<project>-<sequence>`. Opaque: nothing should parse it. */
   risk_code: string;
+  /** Position in the owning project's register. Every project starts at 1. */
+  seq: number;
+  /** The project that owns this risk. Programs and portfolios only read it. */
+  scope_id: number;
+  /**
+   * `ENV-030`. Sent explicitly because the code stopped carrying the taxonomy — without
+   * this field the register would have no way to show or edit a risk's category.
+   */
+  subcategory_prefix: string;
   title: string;
   description: string | null;
   causes: string | null;
@@ -50,8 +60,18 @@ export interface RiskCreate {
   last_review_date?: string | null;
   comments?: string | null;
   custom_fields?: Record<string, unknown> | null;
+  /**
+   * Mitigation actions raised with the risk, written in the same transaction. Blank
+   * `action` text is refused by the API rather than silently written or dropped.
+   */
+  actions?: MitigationInput[];
 }
-export type RiskUpdate = Partial<Omit<RiskCreate, "subcategory_prefix">>;
+/**
+ * `subcategory_prefix` is updatable now that the risk code no longer encodes it — a
+ * miscategorised risk is refiled rather than deleted and re-raised. `actions` is not:
+ * actions are created and edited through their own endpoints once the risk exists.
+ */
+export type RiskUpdate = Partial<Omit<RiskCreate, "actions">>;
 
 export interface LevelDef {
   level: number;
@@ -119,6 +139,16 @@ export interface MitigationInput {
   effectiveness?: string | null;
   status?: string;
   plan_id?: number | null;
+}
+/**
+ * An action on a risk that does not exist yet.
+ *
+ * `key` is a client-side handle so React can track the card across edits and removals;
+ * it is stripped before the payload is sent, because the server allocates the real id.
+ * Negative and descending, so it can never collide with a persisted action's id.
+ */
+export interface DraftAction extends MitigationInput {
+  key: number;
 }
 
 export interface FieldDef {

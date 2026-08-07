@@ -1,9 +1,10 @@
 from datetime import date, datetime
 from enum import Enum
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -18,6 +19,7 @@ from app.models.matrix import band_for, get_active_config, overall_impact
 from app.models.mitigation import MitigationAction
 from app.models.rbs import RbsCategory, RbsSubcategory
 from app.models.risk import Risk
+from app.services.risk_code import next_code
 from app.services.scope import resolve_read_scope, resolve_write_scope
 
 router = APIRouter(prefix="/risks", tags=["risks"])
@@ -28,6 +30,30 @@ class RiskStatus(str, Enum):
     analyzing = "Analyzing"
     mitigating = "Mitigating"
     closed = "Closed"
+
+
+class NestedActionCreate(BaseModel):
+    """A mitigation action supplied as part of the risk that owns it.
+
+    Deliberately its own shape rather than an import of ``mitigations.MitigationCreate``,
+    because the two are allowed to disagree on exactly one point and do: the standalone
+    endpoint accepts a blank ``action`` because the actions panel creates an empty card and
+    fills it in afterwards, whereas nothing here is ever going to come back and fill in a
+    blank, so a blank is refused rather than silently written or silently dropped.
+    """
+
+    #: Stripped then required non-empty: a card holding two spaces is a blank card, and
+    #: refusing it at the boundary is the only place the distinction is cheap to make.
+    action: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    owner: str | None = None
+    due_date: date | None = None
+    budget: float | None = Field(default=None, ge=0)
+    #: Programme the action itself consumes, not the delay it removes.
+    sched_days: float | None = Field(default=None, ge=0)
+    completion_pct: int | None = Field(default=None, ge=0, le=100)
+    effectiveness: str | None = None
+    status: str = "Proposed"
+    plan_id: int | None = None
 
 
 class RiskCreate(BaseModel):
@@ -48,9 +74,18 @@ class RiskCreate(BaseModel):
     last_review_date: date | None = None
     comments: str | None = None
     custom_fields: dict | None = None
+    #: Actions raised in the same breath as the risk. One transaction: a risk that saved
+    #: while its treatment did not is worse than neither saving, because the register then
+    #: shows an untreated risk that somebody believes they have treated.
+    actions: list[NestedActionCreate] = Field(default_factory=list)
 
 
 class RiskUpdate(BaseModel):
+    #: Recategorisation, which only became possible once the identifier stopped encoding
+    #: the taxonomy (0019). The code does not change: it is the register's reference to
+    #: this row and it appears in issued reports, so a correction to the filing is not
+    #: allowed to renumber it.
+    subcategory_prefix: str | None = None
     title: str | None = None
     description: str | None = None
     causes: str | None = None
@@ -72,6 +107,13 @@ class RiskUpdate(BaseModel):
 class RiskRead(BaseModel):
     id: int
     risk_code: str
+    #: Position in the owning project's register. Sent so a client can sort a rollup by
+    #: register order without re-deriving it from the code.
+    seq: int
+    scope_id: int
+    #: ``ENV-030``. The code no longer carries the taxonomy, so it is sent explicitly —
+    #: without this the register would have no way to show or edit a risk's category.
+    subcategory_prefix: str
     title: str
     description: str | None
     causes: str | None
@@ -137,16 +179,9 @@ async def create_risk(
     category, subcategory = await _resolve_subcategory(db, payload.subcategory_prefix)
     config = await get_active_config(db)
 
-    # Sequenced within the scope, so every project's register starts at 0001. A global
-    # sequence would hand the second project ENV-030-0007 as its first environmental risk
-    # because another project got there first, and that is not a register anyone signs.
-    max_seq = await db.execute(
-        select(func.coalesce(func.max(Risk.seq), 0)).where(
-            Risk.scope_id == scope.id, Risk.subcategory_id == subcategory.id
-        )
-    )
-    seq = max_seq.scalar_one() + 1
-    risk_code = f"{category.code}-{subcategory.code}-{seq:04d}"
+    # ``<program>-<project>-<sequence>``, sequenced within the project. See
+    # ``services/risk_code.py`` for why the taxonomy is no longer part of it.
+    seq, risk_code = await next_code(db, scope)
 
     risk = Risk(
         scope_id=scope.id,
@@ -174,15 +209,53 @@ async def create_risk(
     db.add(risk)
     await db.flush()
 
+    changes = creation_changes(snapshot(risk))
+    changes.append(
+        {
+            "field": "subcategory",
+            "old": None,
+            "new": f"{category.code}-{subcategory.code}",
+        }
+    )
     db.add(
         RiskHistory(
             risk_id=risk.id,
             risk_code=risk.risk_code,
             action="created",
             actor=actor,
-            changes=creation_changes(snapshot(risk)),
+            changes=changes,
         )
     )
+
+    # Actions raised with the risk. One history entry each, exactly as the standalone
+    # endpoint writes them, so a treatment added at creation and one added an hour later
+    # are indistinguishable in the trail — which they should be, because they are.
+    for order, item in enumerate(payload.actions):
+        db.add(
+            MitigationAction(
+                risk_id=risk.id,
+                action=item.action,
+                owner=item.owner,
+                due_date=item.due_date,
+                budget=item.budget,
+                sched_days=item.sched_days,
+                completion_pct=item.completion_pct,
+                effectiveness=item.effectiveness,
+                status=item.status,
+                plan_id=item.plan_id,
+                sort_order=order,
+            )
+        )
+        db.add(
+            RiskHistory(
+                risk_id=risk.id,
+                risk_code=risk.risk_code,
+                action="mitigation added",
+                actor=actor,
+                changes=[{"field": "action", "old": None, "new": item.action}],
+            )
+        )
+
     await db.commit()
     await db.refresh(risk)
     return risk
@@ -202,6 +275,9 @@ async def list_risks(
     A portfolio reads as itself plus every project beneath it, which is what makes the
     scope tree a rollup rather than a filing cabinet. Omitting the scope reads everything,
     which is what every caller did before the tree existed.
+
+    Ordered by code, which now sorts a rollup into project blocks for free: every code in
+    one project shares a prefix, and the zero-padded sequence orders the block within it.
     """
     stmt = select(Risk).order_by(Risk.risk_code)
     scope_ids = await resolve_read_scope(db, scope_id)
@@ -252,8 +328,26 @@ async def update_risk(
         raise HTTPException(status_code=404, detail="Risk not found")
 
     before = snapshot(risk)
-
     data = payload.model_dump(exclude_unset=True)
+
+    # Taken before the field loop and diffed by hand. ``subcategory_prefix`` is a property
+    # over a relationship, so reading it after ``subcategory_id`` changes but before the
+    # flush would return the value it had a moment ago and the change would audit as no
+    # change at all.
+    subcategory_change: dict | None = None
+    prefix = data.pop("subcategory_prefix", None)
+    if prefix is not None:
+        old_prefix = risk.subcategory_prefix
+        category, subcategory = await _resolve_subcategory(db, prefix)
+        new_prefix = f"{category.code}-{subcategory.code}"
+        if new_prefix != old_prefix:
+            risk.subcategory_id = subcategory.id
+            subcategory_change = {
+                "field": "subcategory",
+                "old": old_prefix,
+                "new": new_prefix,
+            }
+
     if data.get("status") is not None:
         data["status"] = data["status"].value
     for field, value in data.items():
@@ -263,6 +357,8 @@ async def update_risk(
     _rescore(risk, config)
 
     changes = diff_snapshots(before, snapshot(risk))
+    if subcategory_change is not None:
+        changes.append(subcategory_change)
     if changes:
         db.add(
             RiskHistory(

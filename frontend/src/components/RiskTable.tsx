@@ -25,6 +25,19 @@ function levelClass(level: string): string {
   return `badge level-${level.replace(/\s+/g, "-").toLowerCase()}`;
 }
 
+/**
+ * Three ways to open a risk, on purpose.
+ *
+ * The row itself opens on click, which is what anyone who has used a register expects and
+ * is the thing that was missing. That alone is a mouse-only affordance, so the ID cell is
+ * also a real button — reachable by keyboard, announced by a screen reader, and the one
+ * users will actually aim at. The ID column is hideable, so the Edit link stays in the
+ * actions column as the affordance that is always there. Redundant controls cost a little
+ * clutter; a missing one costs someone the feature entirely.
+ *
+ * Everything in the actions column stops propagation. Without it, Delete opens the edit
+ * panel behind its own confirmation dialog.
+ */
 export default function RiskTable({
   risks,
   columns,
@@ -57,9 +70,30 @@ export default function RiskTable({
         </thead>
         <tbody>
           {risks.map((risk) => (
-            <tr key={risk.id}>
+            <tr
+              key={risk.id}
+              className="risk-row"
+              onClick={() => onEdit(risk)}
+              title={`Open ${risk.risk_code}`}
+            >
               {columns.map((c) => {
                 const value = cellText(risk, c);
+                if (!c.custom && c.key === "risk_code") {
+                  return (
+                    <td key={c.key}>
+                      <button
+                        type="button"
+                        className="risk-code-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(risk);
+                        }}
+                      >
+                        {value}
+                      </button>
+                    </td>
+                  );
+                }
                 if (!c.custom && LEVEL_KEYS.includes(c.key)) {
                   return (
                     <td key={c.key}>
@@ -83,7 +117,7 @@ export default function RiskTable({
                   </td>
                 );
               })}
-              <td className="actions-col">
+              <td className="actions-col" onClick={(e) => e.stopPropagation()}>
                 <button className="link" onClick={() => onEdit(risk)}>
                   Edit
                 </button>

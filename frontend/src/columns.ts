@@ -9,6 +9,10 @@ export interface ColumnDef {
 export const ALL_COLUMNS: ColumnDef[] = [
   { key: "risk_code", label: "ID" },
   { key: "title", label: "Risk title" },
+  // The taxonomy used to be readable off the ID. It is not any more, so it gets a column
+  // of its own — hidden by default, like every other optional field, but there to be
+  // switched on and to be filtered by.
+  { key: "subcategory_prefix", label: "Category" },
   { key: "description", label: "Description" },
   { key: "causes", label: "Causes" },
   { key: "consequences", label: "Consequences" },

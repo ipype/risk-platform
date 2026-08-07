@@ -37,7 +37,11 @@ class RiskHistory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     risk_id: Mapped[int] = mapped_column(Integer, index=True)
-    risk_code: Mapped[str] = mapped_column(String(20), index=True)
+    #: Matches ``risk.risk_code``, which widened to 100 in migration 0019 when the code
+    #: became ``<program>-<project>-<sequence>``. This column is a *copy* taken at write
+    #: time and is never rewritten — 0019 widens it so new entries fit and leaves every
+    #: existing value exactly as it was recorded, which is what an append-only trail means.
+    risk_code: Mapped[str] = mapped_column(String(100), index=True)
     action: Mapped[str] = mapped_column(String(20))  # created / updated / deleted
     actor: Mapped[str] = mapped_column(String(120), default="Unknown")
     changes: Mapped[list | None] = mapped_column(JSON, nullable=True)

@@ -12,6 +12,7 @@ import { ALL_COLUMNS, DEFAULT_VISIBLE, customColumns, cellText } from "../column
 import RiskTable from "../components/RiskTable";
 import RiskFormPanel from "../components/RiskFormPanel";
 import ColumnPicker from "../components/ColumnPicker";
+import "../register.css";
 
 const STORAGE_KEY = "risk-register-columns";
 const STATUSES = ["Open", "Analyzing", "Mitigating", "Closed"];

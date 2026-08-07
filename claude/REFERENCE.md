@@ -383,3 +383,71 @@ New portable-migration gotcha found while writing 0015: `sa.text("now()")` in a
 `server_default` cannot run under the SQLite migration tests, because SQLite has no
 `now()` function — only `sa.func.now()` compiles correctly on both dialects. 0014 already
 used the portable form; 0007 predates the convention.
+
+### 2026-08-06 — structured report (4.6): read once, render many, never disagree
+
+Design settled and shipped this session:
+
+- **The database is read in exactly one place.** `services/report/data.gather()` is the
+  only function in the report package that touches a session; it returns one frozen
+  `ReportData` snapshot. `sections.py`'s twelve builders are pure functions of that
+  snapshot — no DB, no clock, no formatting decision — and `render_html.py` /
+  `render_xlsx.py` are pure functions of the block tree those builders return. This is the
+  same boundary `app/sim/` keeps, for the same reason: a workbook and a printed page that
+  each queried the database separately are two chances to disagree about what the P80 was.
+  It also means a pptx or PDF renderer later is a new file against the existing `Document`
+  type, not a second copy of the query logic — the block model
+  (`Paragraph`/`KeyValues`/`Table`/`Callout`/`MatrixBlock`) was built with that renderer
+  deliberately unwritten.
+- **Naming a run fixes the scope.** When `run_id` is given, the register, the matrix and
+  the mitigation actions are read for *that run's own project*, and any `scope_id` also
+  sent is ignored — recorded as a note printed in the basis section rather than silently
+  honoured or silently dropped. A report whose contingency came from project A and whose
+  register came from the portfolio above it would be internally inconsistent in a way no
+  reader could see from the document itself; the combination is refused at the data layer
+  so no renderer has to know the rule.
+- **A section states why it's missing; it never just disappears.** Every entry in the
+  registry carries `unavailable: ReportData -> str | None`. `GET /reports/sections`
+  answers with these live, for the *actual* parameters given — "Schedule outcome — this
+  run simulated cost only" is a fact about the selected run, not a static capability list,
+  and the picker in `ReportView.tsx` shows the disabled reason rather than hiding the
+  checkbox.
+- **The additive-percentile trap (invariant 1) is now printed, not just prevented.**
+  `ContingencyView.additive_error_at_p80` already existed on the engine side (2026-07-31);
+  4.6 is the first place a human reads it — the cost section prints the integrated P80
+  next to what percentiling-then-adding would have produced, labelled as the wrong
+  arithmetic, whenever the engine measured a gap. Same pattern for the schedule-driver
+  apportionment (delay has no exact additive split among risks — the burn-rate term's own
+  share is exact, its division is not) and for burn-rate cost, which is explicitly not
+  printed as P80 delay × rate anywhere in the document.
+- **A run that failed, is still queued, or whose stored result won't parse is not an
+  error at the API layer.** `/report.json|html|xlsx` return 404 only when a named
+  `run_id`/`roi_id`/`plan_id` doesn't exist at all. Anything else — wrong status, an
+  unreadable `result_json` — becomes a finding printed in the basis section instead of a
+  refusal, on the theory that a report is frequently the tool used to *investigate* why a
+  run came out that way.
+- **Numbers travel unformatted until the last possible step.** `Cell.value` is a bare
+  float/int; `format_value()`/`excel_number_format()` are the single shared source of
+  truth both renderers call. The XLSX renderer writes real numbers with an Excel number
+  format rather than a pre-formatted string, so a client re-summing a column in the
+  workbook gets the right answer without retyping it — the reason this mattered enough to
+  be a rule rather than a convenience.
+
+Two gaps this surfaced, both in `BACKLOG.md` → Surfaced 2026-08-06: no pptx/PDF renderer
+(deferred, not blocked — the block model exists for exactly this), and no end-to-end route
+test for a *populated* mitigation/ROI section (covered at the pure-section level and via
+`roi_service`'s own suite, not together through the live routes).
+
+### 2026-08-06 — `ACTIVE.md` drift is now a standing condition, not an incident
+
+Fourth occurrence. This session opened with `claude/ACTIVE.md` claiming 695 tests (real:
+815) and listing `sim_assembly.assemble()`'s missing scope filter as a blocker for 4.5 —
+a gap that was, on inspection of the actual function, already closed, and 4.5 itself was
+already shipped and tested on `main`. Neither prior "if this happens again" note
+(2026-08-01, 2026-08-02) produced the mechanical check both proposed. Recorded here rather
+than only in `BACKLOG.md` because the pattern itself is now the durable fact worth a dated
+entry: **`ACTIVE.md`'s claims about what is done should be treated as a hypothesis to check
+against `main`, not a fact to build on, every session** — not just when something feels
+off. The fix that would actually stop this (a bootstrap step that runs or at least collects
+the real test count against a fresh clone before trusting the file) is written up as a
+concrete next action in `BACKLOG.md` → Watch items.

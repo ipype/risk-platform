@@ -12,24 +12,32 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+# Imported for its side effect on the mapper registry as much as for the annotation: the
+# ``subcategory`` relationship below resolves ``RbsSubcategory`` by name at configuration
+# time, and a module that imports ``Risk`` without ever importing ``rbs`` would otherwise
+# fail on first use rather than at import. ``rbs`` imports nothing from here, so there is
+# no cycle to unpick.
+from app.models.rbs import RbsSubcategory
 
 
 class Risk(Base):
     __tablename__ = "risk"
-    #: Both uniqueness rules are per scope, and that is a product decision rather than a
-    #: schema detail: every project's register starts at 0001. A globally unique
-    #: ``risk_code`` would mean the second project's first environmental risk came out as
-    #: ENV-030-0007 because another project happened to get there first, which is not a
-    #: register anyone would sign.
-    __table_args__ = (
-        UniqueConstraint(
-            "scope_id", "subcategory_id", "seq", name="uq_risk_scope_subcategory_seq"
-        ),
-        UniqueConstraint("scope_id", "risk_code", name="uq_risk_scope_code"),
-    )
+    #: Uniqueness is per scope, and that is a product decision rather than a schema
+    #: detail: every project's register starts at 0001. A globally unique ``risk_code``
+    #: would mean the second project's first risk came out as 0007 because another project
+    #: happened to get there first, which is not a register anyone would sign.
+    #:
+    #: ``seq`` carries no constraint of its own. It is the input to ``risk_code`` and
+    #: nothing else, so a duplicate ``seq`` within a scope produces a duplicate
+    #: ``risk_code`` within that scope and is refused here. Stating it twice would add a
+    #: second thing to keep in step with the code generator for no extra guarantee.
+    #: (Migration 0019 dropped ``uq_risk_scope_subcategory_seq``, which sequenced per
+    #: subcategory back when the taxonomy was part of the identifier.)
+    __table_args__ = (UniqueConstraint("scope_id", "risk_code", name="uq_risk_scope_code"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -42,8 +50,11 @@ class Risk(Base):
     subcategory_id: Mapped[int] = mapped_column(
         ForeignKey("rbs_subcategory.id", ondelete="RESTRICT"), index=True
     )
+    #: Position in the owning project's register. Allocated by ``services/risk_code.py``.
     seq: Mapped[int] = mapped_column(Integer)
-    risk_code: Mapped[str] = mapped_column(String(20), index=True)
+    #: ``<program>-<project>-<sequence>``. Long enough for two 40-character scope codes,
+    #: a separator each and the sequence; the schema does not truncate what a user typed.
+    risk_code: Mapped[str] = mapped_column(String(100), index=True)
 
     title: Mapped[str] = mapped_column(String(300))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -86,3 +97,21 @@ class Risk(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    #: Eager and view-only. Eager because the register API returns the taxonomy prefix on
+    #: every read and a lazy load would be IO from inside a running event loop; view-only
+    #: because ``subcategory_id`` is the writable side and two ways to set the same thing
+    #: is how they end up disagreeing.
+    subcategory: Mapped["RbsSubcategory"] = relationship(lazy="selectin", viewonly=True)
+
+    @property
+    def subcategory_prefix(self) -> str:
+        """``ENV-030``. Where the taxonomy lives now that the code no longer carries it.
+
+        Empty rather than raising when the relationship is not loaded: a serialiser
+        reaching a half-detached row should produce a thin response, not a 500.
+        """
+        sub = self.subcategory
+        if sub is None or sub.category is None:
+            return ""
+        return f"{sub.category.code}-{sub.code}"

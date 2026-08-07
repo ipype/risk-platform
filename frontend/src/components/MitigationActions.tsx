@@ -1,53 +1,95 @@
 import { useEffect, useState } from "react";
-import type { MitigationAction } from "../types";
+import type { DraftAction, MitigationAction, MitigationInput } from "../types";
 import { createAction, deleteAction, getActions, updateAction } from "../api";
 
 const STATUSES = ["Proposed", "In progress", "Complete", "Cancelled"];
 const EFFECTIVENESS = ["", "Low", "Medium", "High"];
 
+/**
+ * The actions panel, in either of two modes.
+ *
+ * With a `riskId` it is the panel it always was: it fetches, and each card saves itself.
+ * With `riskId === null` the risk does not exist yet, so there is nothing to save against
+ * and nothing to fetch — the cards are held by the form above and posted with the risk in
+ * one request. The alternative was creating the risk silently on first keystroke, which
+ * puts a half-finished row in the register the moment somebody changes their mind.
+ *
+ * One component rather than two because the *fields* are the whole component and they are
+ * identical in both modes; the ninety lines of inputs are the thing worth not duplicating.
+ * Only add, edit and remove differ, and they are three short branches.
+ */
 interface Props {
-  riskId: number;
+  riskId: number | null;
+  /** Draft mode only: the cards, owned by the parent so they survive a re-render. */
+  drafts?: DraftAction[];
+  onDraftsChange?: (next: DraftAction[]) => void;
 }
 
-export default function MitigationActions({ riskId }: Props) {
-  const [actions, setActions] = useState<MitigationAction[]>([]);
+let nextDraftKey = -1;
+
+export function newDraft(): DraftAction {
+  return { key: nextDraftKey--, action: "", status: "Proposed" };
+}
+
+interface Row {
+  key: number;
+  value: MitigationInput;
+}
+
+export default function MitigationActions({ riskId, drafts = [], onDraftsChange }: Props) {
+  const draftMode = riskId === null;
+  const [saved, setSaved] = useState<MitigationAction[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (riskId === null) {
+      setSaved([]);
+      return;
+    }
     getActions(riskId)
-      .then(setActions)
+      .then(setSaved)
       .catch((e) => setError(String(e)));
   }, [riskId]);
 
-  function field<K extends keyof MitigationAction>(
-    id: number,
-    key: K,
-    value: MitigationAction[K]
+  const rows: Row[] = draftMode
+    ? drafts.map((d) => ({ key: d.key, value: d }))
+    : saved.map((a) => ({ key: a.id, value: a }));
+
+  function patch<K extends keyof MitigationInput>(
+    key: number,
+    field: K,
+    value: MitigationInput[K]
   ) {
-    setActions((list) =>
-      list.map((a) => (a.id === id ? { ...a, [key]: value } : a))
-    );
+    if (draftMode) {
+      onDraftsChange?.(
+        drafts.map((d) => (d.key === key ? { ...d, [field]: value } : d))
+      );
+    } else {
+      setSaved((list) =>
+        list.map((a) => (a.id === key ? { ...a, [field]: value } : a))
+      );
+    }
   }
 
-  async function add() {
+  function add() {
+    if (draftMode) {
+      onDraftsChange?.([...drafts, newDraft()]);
+      return;
+    }
     setBusy(true);
     setError(null);
-    try {
-      const created = await createAction(riskId, { action: "" });
-      setActions((list) => [...list, created]);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    createAction(riskId as number, { action: "" })
+      .then((created) => setSaved((list) => [...list, created]))
+      .catch((e) => setError(String(e)))
+      .finally(() => setBusy(false));
   }
 
   async function save(a: MitigationAction) {
     setBusy(true);
     setError(null);
     try {
-      const saved = await updateAction(riskId, a.id, {
+      const result = await updateAction(a.risk_id, a.id, {
         action: a.action,
         owner: a.owner || null,
         due_date: a.due_date || null,
@@ -57,7 +99,7 @@ export default function MitigationActions({ riskId }: Props) {
         effectiveness: a.effectiveness || null,
         status: a.status,
       });
-      setActions((list) => list.map((x) => (x.id === a.id ? saved : x)));
+      setSaved((list) => list.map((x) => (x.id === a.id ? result : x)));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -65,13 +107,17 @@ export default function MitigationActions({ riskId }: Props) {
     }
   }
 
-  async function remove(id: number) {
+  async function remove(key: number) {
+    if (draftMode) {
+      onDraftsChange?.(drafts.filter((d) => d.key !== key));
+      return;
+    }
     if (!confirm("Delete this mitigation action?")) return;
     setBusy(true);
     setError(null);
     try {
-      await deleteAction(riskId, id);
-      setActions((list) => list.filter((x) => x.id !== id));
+      await deleteAction(riskId as number, key);
+      setSaved((list) => list.filter((x) => x.id !== key));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -79,45 +125,60 @@ export default function MitigationActions({ riskId }: Props) {
     }
   }
 
+  const blankDrafts = draftMode && drafts.some((d) => !(d.action ?? "").trim());
+
   return (
     <div className="mit-actions">
       <div className="mit-head">
-        <span>Mitigation actions ({actions.length})</span>
+        <span>Mitigation actions ({rows.length})</span>
         <button type="button" className="btn small" disabled={busy} onClick={add}>
           + Add action
         </button>
       </div>
       {error && <div className="error">{error}</div>}
-      {actions.length === 0 && <p className="muted">No actions yet.</p>}
+      {rows.length === 0 && <p className="muted">No actions yet.</p>}
+      {draftMode && rows.length > 0 && (
+        <p className="muted">
+          These save with the risk. Nothing is written until you create it.
+        </p>
+      )}
+      {blankDrafts && (
+        <div className="error">
+          Every action needs a description, or remove the empty one.
+        </div>
+      )}
 
-      {actions.map((a) => (
-        <div className="action-card" key={a.id}>
+      {rows.map(({ key, value }) => (
+        <div className="action-card" key={key}>
           <textarea
             className="action-text"
             placeholder="Describe the mitigation action…"
-            value={a.action}
-            onChange={(e) => field(a.id, "action", e.target.value)}
+            value={value.action ?? ""}
+            onChange={(e) => patch(key, "action", e.target.value)}
           />
           <div className="action-fields">
             <label>
               Owner
-              <input value={a.owner ?? ""} onChange={(e) => field(a.id, "owner", e.target.value)} />
+              <input
+                value={value.owner ?? ""}
+                onChange={(e) => patch(key, "owner", e.target.value)}
+              />
             </label>
             <label>
               Due date
               <input
                 type="date"
-                value={a.due_date ?? ""}
-                onChange={(e) => field(a.id, "due_date", e.target.value || null)}
+                value={value.due_date ?? ""}
+                onChange={(e) => patch(key, "due_date", e.target.value || null)}
               />
             </label>
             <label>
               Budget
               <input
                 type="number"
-                value={a.budget ?? ""}
+                value={value.budget ?? ""}
                 onChange={(e) =>
-                  field(a.id, "budget", e.target.value === "" ? null : Number(e.target.value))
+                  patch(key, "budget", e.target.value === "" ? null : Number(e.target.value))
                 }
               />
             </label>
@@ -126,9 +187,13 @@ export default function MitigationActions({ riskId }: Props) {
               <input
                 type="number"
                 min={0}
-                value={a.sched_days ?? ""}
+                value={value.sched_days ?? ""}
                 onChange={(e) =>
-                  field(a.id, "sched_days", e.target.value === "" ? null : Number(e.target.value))
+                  patch(
+                    key,
+                    "sched_days",
+                    e.target.value === "" ? null : Number(e.target.value)
+                  )
                 }
               />
             </label>
@@ -138,10 +203,10 @@ export default function MitigationActions({ riskId }: Props) {
                 type="number"
                 min={0}
                 max={100}
-                value={a.completion_pct ?? ""}
+                value={value.completion_pct ?? ""}
                 onChange={(e) =>
-                  field(
-                    a.id,
+                  patch(
+                    key,
                     "completion_pct",
                     e.target.value === "" ? null : Number(e.target.value)
                   )
@@ -151,8 +216,8 @@ export default function MitigationActions({ riskId }: Props) {
             <label>
               Effectiveness
               <select
-                value={a.effectiveness ?? ""}
-                onChange={(e) => field(a.id, "effectiveness", e.target.value || null)}
+                value={value.effectiveness ?? ""}
+                onChange={(e) => patch(key, "effectiveness", e.target.value || null)}
               >
                 {EFFECTIVENESS.map((v) => (
                   <option key={v} value={v}>
@@ -163,7 +228,10 @@ export default function MitigationActions({ riskId }: Props) {
             </label>
             <label>
               Status
-              <select value={a.status} onChange={(e) => field(a.id, "status", e.target.value)}>
+              <select
+                value={value.status ?? "Proposed"}
+                onChange={(e) => patch(key, "status", e.target.value)}
+              >
                 {STATUSES.map((v) => (
                   <option key={v} value={v}>
                     {v}
@@ -173,11 +241,23 @@ export default function MitigationActions({ riskId }: Props) {
             </label>
           </div>
           <div className="action-foot">
-            <button type="button" className="btn small primary" disabled={busy} onClick={() => save(a)}>
-              Save action
-            </button>
-            <button type="button" className="link danger" disabled={busy} onClick={() => remove(a.id)}>
-              Delete
+            {!draftMode && (
+              <button
+                type="button"
+                className="btn small primary"
+                disabled={busy}
+                onClick={() => save(value as MitigationAction)}
+              >
+                Save action
+              </button>
+            )}
+            <button
+              type="button"
+              className="link danger"
+              disabled={busy}
+              onClick={() => remove(key)}
+            >
+              {draftMode ? "Remove" : "Delete"}
             </button>
           </div>
         </div>

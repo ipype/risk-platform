@@ -1,0 +1,60 @@
+/*
+ * Register table affordances.
+ *
+ * Its own file rather than more lines in `index.css`, which is 15KB and shared by every
+ * view: a rule added there for one table is a rule the next person has to prove is not
+ * load-bearing somewhere else.
+ *
+ * Colours are alpha over whatever sits behind them, so this file makes no assumption about
+ * the palette and cannot drift from it.
+ */
+
+.risk-row {
+  cursor: pointer;
+}
+
+.risk-row:hover {
+  background: rgba(127, 127, 127, 0.09);
+}
+
+/* Keyboard focus lands on the ID button; the highlight belongs to the whole row so it
+   reads the same as a hover. */
+.risk-row:focus-within {
+  background: rgba(127, 127, 127, 0.13);
+}
+
+.risk-row .actions-col {
+  cursor: auto;
+}
+
+.risk-code-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(127, 127, 127, 0.45);
+  text-underline-offset: 2px;
+}
+
+.risk-code-btn:hover {
+  text-decoration-color: currentColor;
+}
+
+.risk-code-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Pointer devices only. A touch user gets no hover state and should not be told the row
+   is inert, so nothing here reduces the tap target. */
+@media (hover: none) {
+  .risk-row:hover {
+    background: none;
+  }
+}
