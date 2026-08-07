@@ -1,0 +1,226 @@
+/* The report builder. Prefixed `report-` and self-contained, matching the `roi-`, `mit-`,
+   `qnt-` and `mtx-` convention: nothing cascades out, and nothing outside is relied on
+   beyond the shared `.btn` / `.link` / `.error` primitives in index.css.
+
+   The layout gives the preview the larger half deliberately. The controls are read once
+   per report and the document is read for as long as it takes to decide whether to send
+   it. Below 1100px the two stack, controls first, because a preview you have to scroll
+   past to reach the checkboxes is worse than one you scroll to. */
+
+.report {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+}
+
+@media (max-width: 1100px) {
+  .report {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.report-boot {
+  color: #6b7078;
+  font-size: 13px;
+  padding: 16px;
+}
+
+.report-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.report-card {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+.report-card h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4a4f57;
+}
+.report-card .card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.report-card .card-head h2 {
+  margin-bottom: 12px;
+}
+.report-card .count {
+  font-size: 12px;
+  color: #6b7078;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------- fields */
+
+.report .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.report .field > span {
+  font-size: 12px;
+  color: #4a4f57;
+}
+.report .field input,
+.report .field select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #cfcfc8;
+  border-radius: 6px;
+  background: #fff;
+  min-width: 0;
+}
+.report .field input:focus-visible,
+.report .field select:focus-visible,
+.report .section-list input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+.report .field-row {
+  display: flex;
+  gap: 10px;
+}
+.report .field-row .field {
+  flex: 1 1 0;
+}
+.report .field-row .field.narrow {
+  flex: 0 0 88px;
+}
+.report .hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #6b7078;
+  line-height: 1.45;
+}
+.report .error {
+  margin-bottom: 10px;
+}
+
+/* -------------------------------------------------------------------------- sections */
+
+.report .section-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.report .section-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.report .section-list li {
+  border-top: 1px solid #eeeee8;
+  padding-top: 8px;
+}
+.report .section-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.report .section-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.report .section-list li.off label {
+  cursor: not-allowed;
+}
+.report .section-list .title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #24262b;
+}
+.report .section-list li.off .title {
+  color: #8a8f98;
+  font-weight: 500;
+}
+.report .section-list .summary {
+  margin: 3px 0 0 24px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b7078;
+}
+/* An unavailable section states its reason in italics: the sentence is an answer to
+   "where did that section go", not a description of what it would contain. */
+.report .section-list li.off .summary {
+  font-style: italic;
+}
+
+.report .report-notes {
+  margin: 12px 0 0;
+  padding: 10px 12px 10px 26px;
+  background: #fffbeb;
+  border-left: 3px solid #b45309;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4a4f57;
+}
+.report .report-notes li + li {
+  margin-top: 6px;
+}
+
+/* --------------------------------------------------------------------------- produce */
+
+.report .produce {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------------------- preview */
+
+.report-preview {
+  border: 1px solid #d8d8d2;
+  border-radius: 8px;
+  background: #f6f6f2;
+  min-height: 480px;
+  height: calc(100vh - 190px);
+  overflow: hidden;
+  display: flex;
+}
+.report-preview iframe {
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+.report-preview .preview-empty {
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+  color: #6b7078;
+  font-size: 13px;
+  max-width: 42ch;
+}
+.report-preview .preview-empty p {
+  margin: 0 0 6px;
+}
+
+@media (max-width: 1100px) {
+  .report-preview {
+    height: 70vh;
+  }
+}
