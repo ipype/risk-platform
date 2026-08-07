@@ -45,15 +45,25 @@ export interface DraftDimension {
   pertLambda: string;
   points: { x: string; p: string }[];
   rationale: Record<RationaleKey, DraftRationale>;
+  /**
+   * What this dimension's bounds mean. Always concrete in the draft — the control has to
+   * show something — and sent explicitly, so a form that has been opened and saved stops
+   * relying on the estimate-level fallback. Loading resolves it from the stored dimension
+   * or, where that is null, from the estimate, so an untouched row round-trips unchanged.
+   */
+  boundInterpretation: BoundInterpretation;
 }
 
 export interface DraftEstimate {
   pOccurrence: string;
   isVariability: boolean;
+  /** How the session was run. No longer edited on the form; carried so it survives a save. */
   boundInterpretation: BoundInterpretation;
   cost: DraftDimension;
   sched: DraftDimension;
   costBasis: string;
+  /** Currency amount the cost percentages apply to. Only meaningful under `pct_of_base`. */
+  costBaseValue: string;
   schedDayBasis: string;
   source: QuantSource;
   confidence: Confidence;
@@ -70,7 +80,10 @@ function emptyRationale(): Record<RationaleKey, DraftRationale> {
   };
 }
 
-export function emptyDimension(dist: DistName = "none"): DraftDimension {
+export function emptyDimension(
+  dist: DistName = "none",
+  boundInterpretation: BoundInterpretation = "absolute"
+): DraftDimension {
   return {
     dist,
     min: "",
@@ -82,17 +95,28 @@ export function emptyDimension(dist: DistName = "none"): DraftDimension {
       { x: "", p: "1" },
     ],
     rationale: emptyRationale(),
+    boundInterpretation,
   };
 }
 
+/**
+ * A blank estimate.
+ *
+ * Both dimensions open as "Not assessed". A form that arrives pre-set to PERT is a form
+ * that answers a question nobody asked yet: the shape is the analyst's most consequential
+ * choice on this screen — it moves the P80 more than any single number does — and
+ * defaulting it means most estimates inherit a shape by omission rather than by judgement.
+ * The cost of an explicit choice is one click; the cost of the default is invisible.
+ */
 export function emptyDraft(): DraftEstimate {
   return {
     pOccurrence: "0.3",
     isVariability: false,
     boundInterpretation: "absolute",
-    cost: emptyDimension("pert"),
+    cost: emptyDimension("none"),
     sched: emptyDimension("none"),
     costBasis: "absolute",
+    costBaseValue: "",
     schedDayBasis: "working",
     source: "sme",
     confidence: "medium",
@@ -103,7 +127,7 @@ export function emptyDraft(): DraftEstimate {
 const str = (v: number | null | undefined): string =>
   v === null || v === undefined ? "" : String(v);
 
-function dimensionFrom(d: QuantDimension): DraftDimension {
+function dimensionFrom(d: QuantDimension, fallback: BoundInterpretation): DraftDimension {
   const rationale = emptyRationale();
   for (const key of RATIONALE_KEYS) {
     const entry = d.rationale?.[key];
@@ -127,6 +151,10 @@ function dimensionFrom(d: QuantDimension): DraftDimension {
         ? d.points.map((p) => ({ x: String(p.x), p: String(p.p) }))
         : emptyDimension().points,
     rationale,
+    // Null means "however the session was run", so the fallback is what this dimension
+    // has always been simulated under. Resolving it here is what makes the first save
+    // after the split a no-op on the numbers.
+    boundInterpretation: d.bound_interpretation ?? fallback,
   };
 }
 
@@ -135,9 +163,10 @@ export function draftFromEstimate(e: QuantEstimate): DraftEstimate {
     pOccurrence: str(e.p_occurrence),
     isVariability: e.is_variability,
     boundInterpretation: e.bound_interpretation,
-    cost: dimensionFrom(e.cost),
-    sched: dimensionFrom(e.sched),
+    cost: dimensionFrom(e.cost, e.bound_interpretation),
+    sched: dimensionFrom(e.sched, e.bound_interpretation),
     costBasis: e.cost_basis,
+    costBaseValue: str(e.cost_base_value),
     schedDayBasis: e.sched_day_basis,
     source: e.source,
     confidence: e.confidence,
@@ -179,6 +208,17 @@ export function slotsFor(dist: DistName): RationaleKey[] {
   return [];
 }
 
+/**
+ * Whether "what do these bounds mean" is a question this shape can answer.
+ *
+ * A cumulative curve and a discrete set define their own support point by point, so an
+ * interpretation stored against either means nothing. The server clears it on write for
+ * the same reason; hiding the control keeps the two in step.
+ */
+export function usesBounds(dist: DistName): boolean {
+  return slotsFor(dist).length > 0;
+}
+
 function dimensionOut(d: DraftDimension) {
   const slots = slotsFor(d.dist);
   const usesPoints = d.dist === "cumulative" || d.dist === "discrete";
@@ -197,6 +237,7 @@ function dimensionOut(d: DraftDimension) {
     pert_lambda: num(d.pertLambda) ?? 4,
     points: points && points.length ? points : null,
     rationale: rationaleOut(d.rationale, slots),
+    bound_interpretation: usesBounds(d.dist) ? d.boundInterpretation : null,
   };
 }
 
@@ -208,11 +249,20 @@ export function draftToPayload(d: DraftEstimate): QuantEstimateWrite {
     cost: dimensionOut(d.cost),
     sched: dimensionOut(d.sched),
     cost_basis: d.costBasis,
+    // Cleared under an absolute basis rather than carried along invisibly, matching what
+    // the server stores. A base left behind would start scaling the numbers again the
+    // moment somebody switched the basis back.
+    cost_base_value: d.costBasis === "pct_of_base" ? num(d.costBaseValue) : null,
     sched_day_basis: d.schedDayBasis,
     source: d.source,
     confidence: d.confidence,
     notes: d.notes.trim() || null,
   };
+}
+
+/** Whether either dimension carries a shape. Neither cannot be saved or simulated. */
+export function anyAssessed(d: DraftEstimate): boolean {
+  return d.cost.dist !== "none" || d.sched.dist !== "none";
 }
 
 /**
@@ -221,6 +271,11 @@ export function draftToPayload(d: DraftEstimate): QuantEstimateWrite {
  * Without this the form fires a request on the first digit of the minimum and shows the
  * SME a wall of "must satisfy min <= most likely <= max" before they have typed the other
  * two. Errors should arrive when the analyst has finished a thought, not mid-word.
+ *
+ * A draft with neither dimension assessed is not previewed either. It is the state every
+ * new estimate opens in, and greeting the analyst with "an estimate with neither cannot be
+ * simulated" before they have chosen anything is the same mistake one step earlier. The
+ * save button is disabled instead, which says the same thing without shouting it.
  */
 export function readyToPreview(d: DraftEstimate): boolean {
   const dimReady = (dim: DraftDimension): boolean => {
@@ -235,7 +290,7 @@ export function readyToPreview(d: DraftEstimate): boolean {
   };
 
   if (num(d.pOccurrence) === null) return false;
-  if (d.cost.dist === "none" && d.sched.dist === "none") return false;
+  if (!anyAssessed(d)) return false;
   return dimReady(d.cost) && dimReady(d.sched);
 }
 

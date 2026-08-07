@@ -86,6 +86,13 @@ Calendar-agnostic day counts are a silent corruption source across `.xer` import
   `CURRENT_TIMESTAMP` on SQLite and `now()` on Postgres, and is what 0014 already used as
   convention. 0007 predates the convention and is, as a result, the one migration in the
   tree that has never actually been executed under test (found 2026-08-02, writing 0015).
+- **A `LIKE` scan against a column no index covers is exact but not free.**
+  `risk_code`'s history-based high-water mark (2026-08-07) filters `risk_history` with
+  `LIKE 'prefix-%'` and no index on that column. Correct at every scale tested; worth an
+  index on `risk_history.risk_code` if register size ever makes it show up in a profile.
+  Escape the pattern (`_like_pattern` in `services/risk_code.py`) before reusing this
+  approach anywhere else — an explicit `ScopeNode.code` is taken verbatim and can contain
+  `%` or `_`.
 
 ## Decisions
 
@@ -144,6 +151,15 @@ cloning is read-only and unrelated to the MCP write block.
 is right; verifying in a fresh clone proves the zip is, which is the artefact Sam actually
 applies. Catches a file staged from the wrong path or omitted from the archive — neither of
 which the working tree can tell you about.
+
+**Not available 2026-08-07:** a session can have MCP access without clone access — this one
+did. Migration and API changes were instead validated against a hand-built SQLite harness
+and reconstructed stub modules for the files not touched (`app/models/mitigation.py`,
+`api/errors.py`, `core/errors.py`, `db/session.py`), built from the column set the real
+`mitigations.py` already implied rather than from the file itself. That is real verification
+of the changed logic, but it is not this standard — no `pytest -q`, `ruff`, or
+`vite build` ran against the actual tree, and the delivery says so in its own `APPLY.md`
+rather than presenting stub-verified as clone-verified. See `claude/ACTIVE.md`.
 
 ### 2026-07-30 — pure frontend logic is verified but not committed
 
@@ -451,3 +467,54 @@ against `main`, not a fact to build on, every session** — not just when someth
 off. The fix that would actually stop this (a bootstrap step that runs or at least collects
 the real test count against a fresh clone before trusting the file) is written up as a
 concrete next action in `BACKLOG.md` → Watch items.
+
+### 2026-08-07 — risk code drops the RBS: `<program>-<project>-<sequence>`, allocated from history
+
+`ENV-030-0007` becomes `WTR-PLA-0001`. The identifier now says which project's register a
+risk belongs to instead of which taxonomy branch it came from — the thing that stopped
+scaling the moment a second project existed, since the code carried no scope information
+at all and two projects' registers side by side were indistinguishable. Segments are the
+program's (or portfolio's) abbreviation and the project's, from `ScopeNode.code` or a
+name-derived fallback (`services/risk_code.py`); a parentless project gets two segments
+rather than an invented program above it, matching `scope.py`'s existing position that a
+lone project is the day-one shape.
+
+**The RBS is out of the identifier, not out of the system.** Category is still stored,
+filtered on, exported, and now returned explicitly as `subcategory_prefix` on every read —
+without that field the register would have had no way to show or edit a category at all
+once the code stopped carrying it. The consequence worth stating plainly: **recategorising
+a risk in place is now safe**, and `RiskUpdate.subcategory_prefix` does it, audited as a
+`subcategory` history entry. Previously the only way to fix a miscategorised risk was to
+delete it and re-raise it under a new number, because the number *was* the category. This
+was added without being asked for this session — flagged in `BACKLOG.md` → Surfaced
+2026-08-07 pending confirmation, not presented as settled.
+
+**Numbers are never reissued**, and this took two attempts to get right. `max(seq)` over
+the live register looks sufficient and is not: delete the highest-numbered risk in a
+project and the next create hands its number straight back, so a code can mean two
+different risks depending on when you look — the same failure mode invariant 5 (append-only
+audit) exists to prevent, arrived at from a different direction. `next_code()` now also
+takes the high-water mark from `risk_history`, which is the only record that outlives a
+deleted risk and is queryable by prefix now that the prefix identifies the scope (history
+carries no `scope_id` of its own). Migration `0019` renumbers every existing risk
+accordingly — not optional, since the old per-subcategory sequence meant two risks in one
+project could legitimately both hold `seq = 1` under different subcategories, which the new
+per-project scheme cannot represent as two different sequence numbers without a rewrite.
+
+**Two widened columns, not one.** `risk.risk_code` widening 20→100 is the obvious half;
+`risk_history.risk_code` needs the same widening and is easy to miss, because a narrow
+history column doesn't fail the migration — it fails on the first `RiskHistory` insert
+after deploy, which reads as an unrelated 500 in production rather than a migration bug.
+History *values* are untouched by 0019; only the column widens. Recorded here because the
+same shape of miss (a denormalised copy column that doesn't get the same treatment as the
+column it copies) is generic enough to recur elsewhere.
+
+**Verification gap, stated rather than hidden.** This session had MCP read access but no
+repo clone, which the standing method (2026-07-30) assumes. The migration was executed for
+real against a hand-built pre-0019 SQLite database (16 tests, all four hierarchy shapes);
+the API routes were exercised against the real `risks.py` wired to reconstructed stub
+modules for the files not touched, built from the column set `mitigations.py` already
+implied rather than from the real file. That is genuine verification of the changed logic
+and not a substitute for `pytest -q` / `ruff` / `vite build` against the actual tree. Said
+directly in this delivery's `APPLY.md` and in `BACKLOG.md` → Surfaced 2026-08-07, rather
+than left for the next session to discover the way `ACTIVE.md`'s staleness usually is.

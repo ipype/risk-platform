@@ -53,6 +53,8 @@ class RiskQuantEstimate(Base):
         CheckConstraint("p_occurrence > 0 AND p_occurrence <= 1", name="ck_quant_p_occurrence"),
         CheckConstraint("cost_pert_lambda > 0", name="ck_quant_cost_lambda"),
         CheckConstraint("sched_pert_lambda > 0", name="ck_quant_sched_lambda"),
+        # NULL passes, which is the point: no base recorded means "use the run's".
+        CheckConstraint("cost_base_value > 0", name="ck_quant_cost_base_value"),
         Index("ix_quant_risk_scenario", "risk_id", "scenario"),
     )
 
@@ -69,9 +71,10 @@ class RiskQuantEstimate(Base):
     #: quietly turns into an estimate.
     is_variability: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
-    #: What the elicited min and max actually mean. Load-bearing: treating a P10/P90 pair
-    #: as hard bounds truncates the tail contingency is there to cover. Shared across both
-    #: dimensions because it describes how the session was run, not the number.
+    #: What the elicited min and max mean *by default*. Load-bearing: treating a P10/P90
+    #: pair as hard bounds truncates the tail contingency is there to cover. It describes
+    #: how the session was run, which is why it lives on the estimate — but a dimension
+    #: may override it, and does whenever the two impacts were elicited differently.
     bound_interpretation: Mapped[str] = mapped_column(
         String(20), default="absolute", server_default="absolute"
     )
@@ -94,6 +97,17 @@ class RiskQuantEstimate(Base):
     cost_basis: Mapped[str] = mapped_column(
         String(20), default="absolute", server_default="absolute"
     )
+    #: Override of ``bound_interpretation`` for this dimension. NULL inherits, which is
+    #: what every row written before the split does and what an unremarkable session still
+    #: means. Set when the cost bounds were elicited differently from the schedule's — a
+    #: contract-capped delay is absolute while the cost it drags along is a P10/P90, and
+    #: under one shared value that pair has no legal encoding at all.
+    cost_bound_interpretation: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    #: The amount a ``pct_of_base`` cost is a percentage of. NULL defers to the run's own
+    #: ``base_cost``. Recorded per risk because the alternative — one project-wide base —
+    #: prices a package-level percentage against the whole project and is wrong by the
+    #: ratio between them, silently.
+    cost_base_value: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # -- schedule dimension, in days -----------------------------------------------
     sched_dist: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
@@ -108,6 +122,8 @@ class RiskQuantEstimate(Base):
     sched_day_basis: Mapped[str] = mapped_column(
         String(20), default="working", server_default="working"
     )
+    #: Override of ``bound_interpretation`` for this dimension. See the cost twin above.
+    sched_bound_interpretation: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     source: Mapped[str] = mapped_column(String(20), default="sme", server_default="sme")
     confidence: Mapped[str] = mapped_column(String(20), default="medium", server_default="medium")
@@ -189,6 +205,8 @@ QUANT_FIELDS = [
     "cost_points",
     "cost_rationale",
     "cost_basis",
+    "cost_bound_interpretation",
+    "cost_base_value",
     "sched_dist",
     "sched_min",
     "sched_ml",
@@ -197,6 +215,7 @@ QUANT_FIELDS = [
     "sched_points",
     "sched_rationale",
     "sched_day_basis",
+    "sched_bound_interpretation",
     "source",
     "confidence",
     "notes",

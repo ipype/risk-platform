@@ -10,9 +10,17 @@ that means something, while the cost it drags along is unbounded and PERT. One s
 ``dist_type`` was expedient and wrong, and it becomes impossible once one dimension is a
 cumulative curve and the other is a three-point.
 
-``bound_interpretation`` stays shared. It records how the SME was questioned in that
-session rather than a property of the number, and splitting it per dimension would only
-invite combinations nobody meant.
+``bound_interpretation`` is now the same story, one step behind. It stayed shared on the
+argument that it records how the session was run rather than a property of the number,
+and that argument is still true of the *default* — which is why the estimate-level field
+survives as exactly that. What it could not express is the case the shape split already
+allows: a schedule bound that is a contract milestone and therefore absolute, sitting
+beside a cost bound the SME gave as a defensible P10/P90. Under one shared value that
+pair is not merely awkward, it is rejected — ``triangular`` refuses a percentile
+interpretation and ``trigen`` refuses an absolute one, so the combination has no legal
+encoding at all. ``DimensionInput.bound_interpretation`` is therefore an override:
+``None`` means "however the session was run", and anything else means this number was
+elicited differently and says so.
 """
 
 from __future__ import annotations
@@ -37,6 +45,9 @@ RATIONALE_KEYS = ("min", "ml", "max")
 THREE_POINT_DISTS = ("pert", "triangular", "trigen")
 #: Shapes built from a list of points rather than a three-point.
 POINT_DISTS = ("cumulative", "discrete")
+#: Shapes for which "what do the bounds mean" is a question with consequences. The others
+#: either carry no bounds at all or define their own support point by point.
+BOUNDED_DISTS = THREE_POINT_DISTS + ("uniform",)
 
 #: Tail mass excluded on each side by a given interpretation of the elicited bounds.
 #: ``absolute`` excludes nothing, which makes it the identity case in
@@ -215,6 +226,10 @@ class DimensionInput:
     pert_lambda: float = 4.0
     points: list[dict] | None = None
     rationale: dict | None = None
+    #: What *this* dimension's bounds mean. ``None`` inherits the estimate-level default,
+    #: which is what every pre-existing row does and what an unchanged session still
+    #: means. Set it only when this number was elicited differently from the other one.
+    bound_interpretation: str | None = None
 
     @property
     def assessed(self) -> bool:
@@ -223,6 +238,7 @@ class DimensionInput:
 
 @dataclass
 class EstimateInput:
+    #: How the session was run. The default each dimension falls back to.
     p_occurrence: float = 1.0
     is_variability: bool = False
     bound_interpretation: str = "absolute"
@@ -232,6 +248,14 @@ class EstimateInput:
     sched_day_basis: str = "working"
     source: str = "sme"
     confidence: str = "medium"
+    #: The amount a ``pct_of_base`` cost is a percentage of. ``None`` defers to the run's
+    #: own ``base_cost``, which is the right answer for a risk that scales with the whole
+    #: project and the wrong one for a risk that scales with a single package.
+    cost_base_value: float | None = None
+
+    def interpretation_for(self, dim: DimensionInput) -> str:
+        """The interpretation that actually applies to one dimension."""
+        return dim.bound_interpretation or self.bound_interpretation
 
 
 @dataclass
@@ -417,19 +441,26 @@ def discrete_moments(points: list[dict]) -> Moments:
 
 
 def dimension_moments(dim: DimensionInput, interpretation: str) -> Moments | None:
-    """Dispatch to the right shape. Returns ``None`` for an unassessed dimension."""
+    """Dispatch to the right shape. Returns ``None`` for an unassessed dimension.
+
+    ``interpretation`` is the estimate-level default; the dimension's own override wins
+    where it is set. Resolving it here rather than at each call site is what keeps the
+    override from being silently skipped by a caller that predates it — the assembly
+    adapter and the preview both reach the shapes through this function.
+    """
+    interp = dim.bound_interpretation or interpretation
     if dim.dist == "none":
         return None
     if dim.dist == "pert":
         return pert_moments(
-            float(dim.lo), float(dim.ml), float(dim.hi), interpretation, dim.pert_lambda
+            float(dim.lo), float(dim.ml), float(dim.hi), interp, dim.pert_lambda
         )
     if dim.dist == "triangular":
         return triangular_moments(float(dim.lo), float(dim.ml), float(dim.hi), "absolute")
     if dim.dist == "trigen":
-        return triangular_moments(float(dim.lo), float(dim.ml), float(dim.hi), interpretation)
+        return triangular_moments(float(dim.lo), float(dim.ml), float(dim.hi), interp)
     if dim.dist == "uniform":
-        return uniform_moments(float(dim.lo), float(dim.hi), interpretation)
+        return uniform_moments(float(dim.lo), float(dim.hi), interp)
     if dim.dist == "cumulative":
         return cumulative_moments(dim.points or [])
     if dim.dist == "discrete":
@@ -600,13 +631,33 @@ def _validate_points(prefix: str, dim: DimensionInput, issues: list[Issue]) -> N
 
 
 def _validate_dimension(
-    prefix: str, dim: DimensionInput, interpretation: str, issues: list[Issue]
+    prefix: str, dim: DimensionInput, default_interpretation: str, issues: list[Issue]
 ) -> None:
+    """Rules for one dimension.
+
+    ``default_interpretation`` is the estimate's; the dimension's override, if any, is
+    resolved here so every rule below reasons about the value that will actually be
+    sampled rather than the one recorded on the session.
+    """
     if dim.dist not in DIST_TYPES:
         issues.append(
             Issue("error", f"{prefix}.dist", f"Must be one of {', '.join(DIST_TYPES)}.")
         )
         return
+
+    if dim.bound_interpretation is not None and (
+        dim.bound_interpretation not in BOUND_INTERPRETATIONS
+    ):
+        issues.append(
+            Issue(
+                "error",
+                f"{prefix}.bound_interpretation",
+                f"Must be one of {', '.join(BOUND_INTERPRETATIONS)}.",
+            )
+        )
+        return
+
+    interpretation = dim.bound_interpretation or default_interpretation
 
     _validate_rationale(prefix, dim.rationale, issues)
 
@@ -675,8 +726,8 @@ def _validate_dimension(
             Issue(
                 "error",
                 f"{prefix}.dist",
-                "Triangular treats its bounds as hard limits, but this estimate records them "
-                "as percentiles. Use trigen, or set the interpretation to absolute.",
+                "Triangular treats its bounds as hard limits, but these bounds are recorded "
+                "as percentiles. Use trigen, or set this dimension's bounds to absolute.",
             )
         )
     if dim.dist == "trigen" and interpretation == "absolute":
@@ -685,7 +736,7 @@ def _validate_dimension(
                 "error",
                 f"{prefix}.dist",
                 "Trigen solves for the bounds behind elicited percentiles, so absolute bounds "
-                "leave it nothing to do. Use triangular, or record the bounds as P10/P90.",
+                "leave it nothing to do. Use triangular, or record these bounds as P10/P90.",
             )
         )
 
@@ -730,6 +781,55 @@ def _validate_dimension(
                 f"{prefix}.min",
                 "Range spans zero, so this is modelled as both a threat and an opportunity. "
                 "Confirm that is intended.",
+            )
+        )
+
+
+def _validate_cost_base(est: EstimateInput, issues: list[Issue]) -> None:
+    """The reference a ``pct_of_base`` cost is a percentage *of*.
+
+    Unset is legal and means the run's own ``base_cost``, which is right for a risk that
+    scales with the whole project. It is wrong, and quietly so, for one that scales with a
+    single package — a 10% overrun on a 2m civils package priced against a 40m project
+    base comes out twenty times too large. Hence the warning rather than a default: the
+    fallback is a real modelling choice and it should be a visible one.
+    """
+    value = est.cost_base_value
+
+    if est.cost_basis != "pct_of_base":
+        if value is not None:
+            issues.append(
+                Issue(
+                    "warning",
+                    "cost_base_value",
+                    "A base amount is recorded but the cost is elicited as an absolute "
+                    "figure, so nothing is a percentage of it and the value is ignored.",
+                )
+            )
+        return
+
+    if not est.cost.assessed:
+        return
+
+    if value is None:
+        issues.append(
+            Issue(
+                "warning",
+                "cost_base_value",
+                "No base amount, so these percentages will be taken against the run's own "
+                "base cost. Right for a risk that scales with the whole project; wrong, and "
+                "invisibly so, for one that scales with a single package.",
+            )
+        )
+        return
+
+    if not math.isfinite(value) or value <= 0.0:
+        issues.append(
+            Issue(
+                "error",
+                "cost_base_value",
+                "The base amount must be a positive number. A percentage of zero is zero, "
+                "so the risk would contribute nothing at all.",
             )
         )
 
@@ -781,6 +881,8 @@ def validate(est: EstimateInput) -> ValidationResult:
         _validate_dimension("cost", est.cost, est.bound_interpretation, issues)
         _validate_dimension("sched", est.sched, est.bound_interpretation, issues)
 
+    _validate_cost_base(est, issues)
+
     if not est.cost.assessed and not est.sched.assessed:
         issues.append(
             Issue(
@@ -791,20 +893,20 @@ def validate(est: EstimateInput) -> ValidationResult:
             )
         )
 
-    if (
-        est.bound_interpretation == "absolute"
-        and est.confidence == "low"
-        and any(d.dist in THREE_POINT_DISTS for d in (est.cost, est.sched))
-    ):
-        issues.append(
-            Issue(
-                "warning",
-                "bound_interpretation",
-                "Low-confidence bounds are recorded as absolute extremes. SMEs asked for a min "
-                "and max usually give something nearer P10 and P90; trigen treats them that "
-                "way and stops the tails being truncated.",
-            )
-        )
+    # Per dimension, because the interpretations can now differ and a warning aimed at the
+    # estimate would point at neither of the two controls that could fix it.
+    if est.confidence == "low":
+        for prefix, dim in (("cost", est.cost), ("sched", est.sched)):
+            if dim.dist in THREE_POINT_DISTS and est.interpretation_for(dim) == "absolute":
+                issues.append(
+                    Issue(
+                        "warning",
+                        f"{prefix}.bound_interpretation",
+                        "Low-confidence bounds are recorded as absolute extremes. SMEs asked "
+                        "for a min and max usually give something nearer P10 and P90; trigen "
+                        "treats them that way and stops the tails being truncated.",
+                    )
+                )
 
     if 0.0 < p < RARE_EVENT_P:
         issues.append(
@@ -853,8 +955,13 @@ def summarise(est: EstimateInput) -> dict:
     """Moments for both dimensions, for the entry-form preview and the tornado seed.
 
     Assumes ``validate`` passed; unassessed dimensions come back ``None``.
+
+    Deliberately *not* scaled by ``cost_base_value``. A ``pct_of_base`` cost is summarised
+    in the units it was elicited in — percent — because that is what the SME typed and
+    what the preview curve is drawn against. The conversion to money happens once, inside
+    the iteration, where the run's own base is also in play.
     """
     return {
-        "cost": _dim_summary(est.cost, est.bound_interpretation, est.p_occurrence),
-        "sched": _dim_summary(est.sched, est.bound_interpretation, est.p_occurrence),
+        "cost": _dim_summary(est.cost, est.interpretation_for(est.cost), est.p_occurrence),
+        "sched": _dim_summary(est.sched, est.interpretation_for(est.sched), est.p_occurrence),
     }

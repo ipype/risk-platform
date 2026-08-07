@@ -69,6 +69,13 @@ export interface QuantDimension {
   pert_lambda: number;
   points?: QuantPoint[] | null;
   rationale?: Partial<Record<RationaleKey, RationaleEntry>> | null;
+  /**
+   * What *this* dimension's bounds mean. `null` inherits the estimate-level value, which
+   * is what every row written before the split does. Set when the two impacts were
+   * elicited differently — a delay capped by a contract milestone is absolute while the
+   * cost it drags along is a P10/P90, and one shared value cannot hold that pair.
+   */
+  bound_interpretation?: BoundInterpretation | null;
 }
 
 export interface QuantEstimate {
@@ -77,10 +84,13 @@ export interface QuantEstimate {
   scenario: QuantScenario;
   p_occurrence: number;
   is_variability: boolean;
+  /** How the session was run. The default each dimension falls back to. */
   bound_interpretation: BoundInterpretation;
   cost: QuantDimension;
   sched: QuantDimension;
   cost_basis: string;
+  /** What a `pct_of_base` cost is a percentage of. `null` defers to the run's base cost. */
+  cost_base_value: number | null;
   sched_day_basis: string;
   source: QuantSource;
   confidence: Confidence;
@@ -100,6 +110,7 @@ export interface QuantDimensionWrite {
   pert_lambda?: number;
   points?: QuantPoint[] | null;
   rationale?: Partial<Record<RationaleKey, RationaleEntry>> | null;
+  bound_interpretation?: BoundInterpretation | null;
 }
 
 export interface QuantEstimateWrite {
@@ -109,6 +120,7 @@ export interface QuantEstimateWrite {
   cost: QuantDimensionWrite;
   sched: QuantDimensionWrite;
   cost_basis: string;
+  cost_base_value?: number | null;
   sched_day_basis: string;
   source: QuantSource;
   confidence: Confidence;

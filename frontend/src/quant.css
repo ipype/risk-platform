@@ -167,6 +167,89 @@
   border-radius: 6px;
 }
 
+/* The mitigation plan, shown while the residual is being elicited. Deliberately quieter
+   than the form it sits above: it is the evidence for the numbers below, not an input. */
+.qnt-plan {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid #e6e4dd;
+  border-left: 3px solid #cfcdc5;
+  border-radius: 6px;
+  background: #fbfaf7;
+}
+.qnt-plan-loading {
+  margin: 0 0 14px;
+}
+.qnt-plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.qnt-plan-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.qnt-plan-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7a5210;
+}
+.qnt-plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.qnt-plan-table th {
+  text-align: left;
+  font-weight: 500;
+  color: #55544f;
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid #eceae4;
+}
+.qnt-plan-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid #f2f1ec;
+  vertical-align: top;
+  line-height: 1.4;
+}
+.qnt-plan-table tfoot td {
+  border-bottom: 0;
+  border-top: 1px solid #d8d8d2;
+  color: #2f2f2c;
+}
+/* Cancelled work stays visible — it explains why a residual moved — but is never counted,
+   so it must not read as spend. */
+.qnt-plan-cancelled td {
+  color: #8f8e88;
+  text-decoration: line-through;
+}
+.qnt-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.qnt-plan-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #6c6b65;
+}
+
+/* The table is the first thing to break on a narrow screen; letting it scroll on its own
+   beats squeezing the action text down to two words a line. */
+@media (max-width: 640px) {
+  .qnt-plan-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
 .qnt-dimensions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));

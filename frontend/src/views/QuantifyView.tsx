@@ -13,6 +13,10 @@ import "../quant.css";
  * top is the reason for the split — a run over a register where a third of the flagged
  * risks were never elicited produces a clean, confident, and far too low contingency, and
  * nothing in the output says so. The gap has to be visible before the run, not after.
+ *
+ * Presented as "Risk Scoring". The file and route keep the `quantify` name because that is
+ * what the API path and the coverage endpoint are called, and renaming a URL to match a tab
+ * label breaks every bookmark to gain nothing.
  */
 
 export default function QuantifyView() {
@@ -49,7 +53,7 @@ export default function QuantifyView() {
         setRisks(riskRows);
         await refreshCoverage();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load the quantify view");
+        setError(err instanceof Error ? err.message : "Could not load the risk scoring view");
       } finally {
         setLoading(false);
       }
@@ -90,7 +94,7 @@ export default function QuantifyView() {
     <div className="qnt-view">
       <aside className="qnt-rail">
         <header className="qnt-rail-head">
-          <h2 className="qnt-rail-title">Quantify</h2>
+          <h2 className="qnt-rail-title">Risk Scoring</h2>
           {coverage && (
             <p className="qnt-coverage">
               <strong>
@@ -125,7 +129,7 @@ export default function QuantifyView() {
                 <input
                   type="checkbox"
                   checked={flagged.has(risk.id)}
-                  aria-label={`Flag ${risk.risk_code} for quantification`}
+                  aria-label={`Flag ${risk.risk_code} for scoring`}
                   onChange={(e) => void toggleFlag(risk.id, e.target.checked)}
                 />
                 <button
@@ -147,7 +151,7 @@ export default function QuantifyView() {
           {visible.length === 0 && (
             <li className="qnt-empty-note">
               {flaggedOnly
-                ? "Nothing flagged yet. Untick the filter and flag the risks worth quantifying — usually everything at or above your matrix threshold."
+                ? "Nothing flagged yet. Untick the filter and flag the risks worth scoring — usually everything at or above your matrix threshold."
                 : "No risks in the register."}
             </li>
           )}

@@ -21,6 +21,9 @@ import type { ScopeNode } from "./scope-types";
 import { getActor, setActor } from "./api";
 import "./scope.css";
 
+// The view keys are internal identity, not labels. `quantify` stays `quantify` even though
+// the tab now reads "Risk Scoring": it matches the view file, the API prefix and the
+// coverage endpoint, and renaming it to follow a caption would rename all three for nothing.
 type View =
   | "register"
   | "matrix"
@@ -142,7 +145,7 @@ function Shell() {
             Matrix
           </button>
           <button className={view === "quantify" ? "navlink active" : "navlink"} onClick={() => setView("quantify")}>
-            Quantify
+            Risk Scoring
           </button>
           <button className={view === "mitigate" ? "navlink active" : "navlink"} onClick={() => setView("mitigate")}>
             Mitigate

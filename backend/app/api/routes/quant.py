@@ -72,6 +72,9 @@ class DimensionWrite(BaseModel):
     pert_lambda: float = Field(default=4.0, gt=0.0)
     points: list[PointWrite] | None = None
     rationale: dict[str, RationaleEntry] | None = None
+    #: Override of the estimate-level interpretation. Omitted means inherit, which is what
+    #: every client written before the split sends and what it has always meant.
+    bound_interpretation: str | None = None
 
     def to_input(self) -> qv.DimensionInput:
         return qv.DimensionInput(
@@ -86,6 +89,7 @@ class DimensionWrite(BaseModel):
                 if self.rationale
                 else None
             ),
+            bound_interpretation=self.bound_interpretation,
         )
 
 
@@ -97,6 +101,7 @@ class DimensionRead(BaseModel):
     pert_lambda: float = 4.0
     points: list[PointWrite] | None = None
     rationale: dict[str, Any] | None = None
+    bound_interpretation: str | None = None
 
 
 class QuantEstimateWrite(BaseModel):
@@ -106,6 +111,9 @@ class QuantEstimateWrite(BaseModel):
     cost: DimensionWrite = Field(default_factory=DimensionWrite)
     sched: DimensionWrite = Field(default_factory=DimensionWrite)
     cost_basis: str = "absolute"
+    #: Unconstrained here on purpose — a zero or negative base is a modelling error with a
+    #: message worth reading, not a 422 with a field path. ``quant_validation`` owns it.
+    cost_base_value: float | None = None
     sched_day_basis: str = "working"
     source: str = "sme"
     confidence: str = "medium"
@@ -122,6 +130,7 @@ class QuantEstimateWrite(BaseModel):
             sched_day_basis=self.sched_day_basis,
             source=self.source,
             confidence=self.confidence,
+            cost_base_value=self.cost_base_value,
         )
 
 
@@ -135,6 +144,7 @@ class QuantEstimateRead(BaseModel):
     cost: DimensionRead
     sched: DimensionRead
     cost_basis: str
+    cost_base_value: float | None
     sched_day_basis: str
     source: str
     confidence: str
@@ -227,6 +237,7 @@ _DIM_COLUMNS = {
     "pert_lambda": "{d}_pert_lambda",
     "points": "{d}_points",
     "rationale": "{d}_rationale",
+    "bound_interpretation": "{d}_bound_interpretation",
 }
 
 
@@ -235,7 +246,10 @@ def _apply_dimension(row: RiskQuantEstimate, dim: str, payload: DimensionWrite) 
 
     Values from shapes that do not use them are cleared rather than left behind. A stale
     ``ml`` under a uniform is invisible on screen and would reappear the moment someone
-    switched the shape back, silently resurrecting a number nobody re-confirmed.
+    switched the shape back, silently resurrecting a number nobody re-confirmed. The bound
+    interpretation is cleared on the same rule: a cumulative curve defines its own support
+    point by point, so an interpretation stored against it means nothing and would only
+    come back to life under a later shape change.
     """
     uses_three_point = payload.dist in qv.THREE_POINT_DISTS
     uses_bounds = uses_three_point or payload.dist == "uniform"
@@ -258,6 +272,11 @@ def _apply_dimension(row: RiskQuantEstimate, dim: str, payload: DimensionWrite) 
         if payload.rationale
         else None,
     )
+    setattr(
+        row,
+        _DIM_COLUMNS["bound_interpretation"].format(d=dim),
+        payload.bound_interpretation if uses_bounds else None,
+    )
 
 
 def _read_dimension(row: RiskQuantEstimate, dim: str) -> DimensionRead:
@@ -269,6 +288,7 @@ def _read_dimension(row: RiskQuantEstimate, dim: str) -> DimensionRead:
         pert_lambda=getattr(row, f"{dim}_pert_lambda"),
         points=[PointWrite(**p) for p in (getattr(row, f"{dim}_points") or [])] or None,
         rationale=getattr(row, f"{dim}_rationale"),
+        bound_interpretation=getattr(row, f"{dim}_bound_interpretation"),
     )
 
 
@@ -283,6 +303,7 @@ def _read_estimate(row: RiskQuantEstimate) -> QuantEstimateRead:
         cost=_read_dimension(row, "cost"),
         sched=_read_dimension(row, "sched"),
         cost_basis=row.cost_basis,
+        cost_base_value=row.cost_base_value,
         sched_day_basis=row.sched_day_basis,
         source=row.source,
         confidence=row.confidence,
@@ -305,6 +326,7 @@ def _to_input(row: RiskQuantEstimate) -> qv.EstimateInput:
             pert_lambda=getattr(row, f"{d}_pert_lambda"),
             points=getattr(row, f"{d}_points"),
             rationale=getattr(row, f"{d}_rationale"),
+            bound_interpretation=getattr(row, f"{d}_bound_interpretation"),
         )
 
     return qv.EstimateInput(
@@ -317,6 +339,7 @@ def _to_input(row: RiskQuantEstimate) -> qv.EstimateInput:
         sched_day_basis=row.sched_day_basis,
         source=row.source,
         confidence=row.confidence,
+        cost_base_value=row.cost_base_value,
     )
 
 
@@ -474,6 +497,12 @@ async def upsert_estimate(
     row.is_variability = payload.is_variability
     row.bound_interpretation = payload.bound_interpretation
     row.cost_basis = payload.cost_basis
+    # Same discipline as the per-dimension clears in ``_apply_dimension``: a base amount
+    # left behind under an absolute basis is invisible on screen and would start scaling
+    # the numbers again the moment somebody switched the basis back.
+    row.cost_base_value = (
+        payload.cost_base_value if payload.cost_basis == "pct_of_base" else None
+    )
     row.sched_day_basis = payload.sched_day_basis
     row.source = payload.source
     row.confidence = payload.confidence

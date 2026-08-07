@@ -9,11 +9,13 @@ import {
   setEstimateLock,
 } from "../../quant/api";
 import {
+  anyAssessed,
   draftFromEstimate,
   draftToPayload,
   emptyDraft,
   issuesFor,
   readyToPreview,
+  usesBounds,
 } from "../../quant/draft";
 import type { DraftDimension, DraftEstimate } from "../../quant/draft";
 import type {
@@ -25,6 +27,8 @@ import type {
   QuantSummary,
   QuantVocabulary,
 } from "../../quant/types";
+import { getActions } from "../../api";
+import type { MitigationAction } from "../../types";
 
 /**
  * The quantitative estimate for one risk.
@@ -37,6 +41,14 @@ import type {
  * impact band into a currency range would invent precision nobody supplied and leave no
  * record of who supplied it; the matrix decides *which* risks reach this form, and that is
  * the whole of its job here.
+ *
+ * "Bounds are" sits inside each dimension rather than above both. The two impacts are
+ * routinely elicited differently — a delay capped by a contract milestone is an absolute
+ * bound, while the cost it drags along is whatever the SME would defend, which is nearer a
+ * P10/P90 — and under one shared control that pair is not merely awkward but rejected,
+ * because triangular refuses a percentile reading and trigen refuses an absolute one. The
+ * estimate-level value survives underneath as the session default and is what an untouched
+ * row still simulates under.
  */
 
 const INTERPRETATION_LABELS: Record<BoundInterpretation, string> = {
@@ -55,6 +67,14 @@ const SCENARIO_LABELS: Record<QuantScenario, string> = {
   pre_mitigation: "Pre-mitigation",
   post_mitigation: "Post-mitigation",
 };
+
+const BOUNDS_HINT =
+  "What the minimum and maximum actually mean for this dimension. SMEs asked for extremes " +
+  "usually give something nearer a P10 and P90; recording that lets trigen recover the real " +
+  "bounds instead of truncating the tail. The two dimensions can differ.";
+
+const num = (v: number | null | undefined): string =>
+  v === null || v === undefined ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 interface Props {
   riskId: number;
@@ -134,8 +154,44 @@ export default function QuantPanel({
   const topLevel = (field: string) =>
     issues.find((i) => i.field === field)?.message ?? null;
 
+  const assessed = anyAssessed(draft);
+
   const setDimension = (key: "cost" | "sched") => (next: DraftDimension) =>
     setDraft((d) => ({ ...d, [key]: next }));
+
+  const setBounds = (key: "cost" | "sched") => (value: BoundInterpretation) =>
+    setDraft((d) => ({ ...d, [key]: { ...d[key], boundInterpretation: value } }));
+
+  /** The bounds control, rendered inside whichever dimension it belongs to. */
+  function boundsField(key: "cost" | "sched") {
+    if (!usesBounds(draft[key].dist)) return null;
+    const message = topLevel(`${key}.bound_interpretation`);
+    return (
+      <>
+        <label className="qnt-field qnt-field-inline">
+          <span className="qnt-label">
+            Bounds are
+            <span className="qnt-hint" title={BOUNDS_HINT}>
+              ?
+            </span>
+          </span>
+          <select
+            className="qnt-select qnt-select-sm"
+            value={draft[key].boundInterpretation}
+            disabled={locked}
+            onChange={(e) => setBounds(key)(e.target.value as BoundInterpretation)}
+          >
+            {vocabulary.bound_interpretations.map((b) => (
+              <option key={b} value={b}>
+                {INTERPRETATION_LABELS[b] ?? b}
+              </option>
+            ))}
+          </select>
+        </label>
+        {message && <p className="qnt-warn">{message}</p>}
+      </>
+    );
+  }
 
   async function save() {
     setSaving(true);
@@ -224,6 +280,8 @@ export default function QuantPanel({
         </p>
       )}
 
+      {scenario === "post_mitigation" && <PlannedActions riskId={riskId} />}
+
       <section className="qnt-occurrence">
         <label className="qnt-field">
           <span className="qnt-label">Probability of occurrence</span>
@@ -258,35 +316,6 @@ export default function QuantPanel({
               ?
             </span>
           </span>
-        </label>
-
-        <label className="qnt-field">
-          <span className="qnt-label">
-            Bounds are
-            <span
-              className="qnt-hint"
-              title="What the minimum and maximum actually mean. SMEs asked for extremes usually give something nearer a P10 and P90; recording that lets trigen recover the real bounds instead of truncating the tail."
-            >
-              ?
-            </span>
-          </span>
-          <select
-            className="qnt-select"
-            value={draft.boundInterpretation}
-            disabled={locked}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                boundInterpretation: e.target.value as BoundInterpretation,
-              }))
-            }
-          >
-            {vocabulary.bound_interpretations.map((b) => (
-              <option key={b} value={b}>
-                {INTERPRETATION_LABELS[b] ?? b}
-              </option>
-            ))}
-          </select>
         </label>
 
         <label className="qnt-field">
@@ -336,6 +365,43 @@ export default function QuantPanel({
               ))}
             </select>
           </label>
+
+          {draft.costBasis === "pct_of_base" && (
+            <>
+              <label className="qnt-field qnt-field-inline">
+                <span className="qnt-label">
+                  Base amount
+                  <span
+                    className="qnt-hint"
+                    title="The figure these percentages are a percentage of — the package, subcontract or estimate line the risk actually scales with. Leave it blank and the run's own base cost is used instead, which is right for a risk that scales with the whole project and wrong, by the ratio between them, for one that does not."
+                  >
+                    ?
+                  </span>
+                </span>
+                <input
+                  className={
+                    topLevel("cost_base_value") ? "qnt-input qnt-input-sm qnt-input-bad" : "qnt-input qnt-input-sm"
+                  }
+                  inputMode="decimal"
+                  placeholder="run base cost"
+                  value={draft.costBaseValue}
+                  disabled={locked}
+                  onChange={(e) => setDraft((d) => ({ ...d, costBaseValue: e.target.value }))}
+                />
+              </label>
+              {topLevel("cost_base_value") && (
+                <p
+                  className={
+                    errors.some((i) => i.field === "cost_base_value") ? "qnt-error" : "qnt-warn"
+                  }
+                >
+                  {topLevel("cost_base_value")}
+                </p>
+              )}
+            </>
+          )}
+
+          {boundsField("cost")}
         </DimensionEditor>
 
         <DimensionEditor
@@ -371,6 +437,8 @@ export default function QuantPanel({
               ))}
             </select>
           </label>
+
+          {boundsField("sched")}
         </DimensionEditor>
       </div>
 
@@ -399,7 +467,7 @@ export default function QuantPanel({
         <button
           type="button"
           className="qnt-primary"
-          disabled={saving || locked || errors.length > 0}
+          disabled={saving || locked || !assessed || errors.length > 0}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : current ? "Update estimate" : "Save estimate"}
@@ -419,12 +487,128 @@ export default function QuantPanel({
             </button>
           </>
         )}
-        {errors.length > 0 && (
+        {!assessed && (
+          <span className="qnt-muted">
+            Choose a shape for the cost impact, the schedule impact, or both. A risk with
+            neither cannot reach the contingency.
+          </span>
+        )}
+        {assessed && errors.length > 0 && (
           <span className="qnt-muted">
             {errors.length} issue{errors.length === 1 ? "" : "s"} to resolve
           </span>
         )}
       </footer>
     </div>
+  );
+}
+
+/**
+ * What is actually being done about the risk, shown while its residual is being elicited.
+ *
+ * Read-only on purpose. Editing lives on the register, and duplicating it here would give
+ * two screens that can disagree about what the plan is. What this needs to do is stop an
+ * SME inventing a residual out of optimism: a post-mitigation range is only defensible
+ * next to the actions that justify it, and the commonest failure in this step is a number
+ * that assumes work nobody has funded or scheduled.
+ *
+ * The totals are deterministic money and days and stay outside every percentile on this
+ * screen (invariant 1). A plan's price is additive and a contingency is not, so the two
+ * are quoted side by side and never summed.
+ */
+function PlannedActions({ riskId }: { riskId: number }) {
+  const [actions, setActions] = useState<MitigationAction[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setActions(null);
+    setError(null);
+    getActions(riskId)
+      .then((rows) => {
+        if (live) setActions(rows);
+      })
+      .catch((e) => {
+        if (live) setError(e instanceof Error ? e.message : "Could not load the actions");
+      });
+    return () => {
+      live = false;
+    };
+  }, [riskId]);
+
+  if (error) return <p className="qnt-banner">{error}</p>;
+  if (actions === null) return <p className="qnt-muted qnt-plan-loading">Loading actions…</p>;
+
+  // Cancelled work is shown but never counted: it is context for why a residual moved, not
+  // spend anyone is committing to.
+  const live = actions.filter((a) => (a.status ?? "") !== "Cancelled");
+  const budget = live.reduce((sum, a) => sum + (a.budget ?? 0), 0);
+  const days = live.reduce((sum, a) => sum + (a.sched_days ?? 0), 0);
+  const unpriced = live.filter((a) => a.budget === null && a.sched_days === null).length;
+
+  return (
+    <section className="qnt-plan">
+      <header className="qnt-plan-head">
+        <h3 className="qnt-plan-title">Mitigation actions ({actions.length})</h3>
+        <span className="qnt-muted">
+          The residual below should be what is left <em>after</em> these, and only these.
+        </span>
+      </header>
+
+      {actions.length === 0 ? (
+        <p className="qnt-plan-empty">
+          Nothing recorded against this risk. A post-mitigation estimate with no actions
+          behind it is a hope rather than a plan — add them on the register first, or say in
+          the notes what the reduction rests on.
+        </p>
+      ) : (
+        <>
+          <table className="qnt-plan-table">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Owner</th>
+                <th>Status</th>
+                <th className="qnt-num">Cost</th>
+                <th className="qnt-num">Days</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actions.map((a) => {
+                const cancelled = (a.status ?? "") === "Cancelled";
+                return (
+                  <tr key={a.id} className={cancelled ? "qnt-plan-cancelled" : undefined}>
+                    <td>{a.action?.trim() || <span className="qnt-muted">Untitled action</span>}</td>
+                    <td>{a.owner || <span className="qnt-muted">—</span>}</td>
+                    <td>{a.status || "—"}</td>
+                    <td className="qnt-num">{num(a.budget)}</td>
+                    <td className="qnt-num">{num(a.sched_days)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Committed total ({live.length} live)</td>
+                <td className="qnt-num">{num(budget)}</td>
+                <td className="qnt-num">{num(days)}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <p className="qnt-plan-note">
+            Deterministic plan cost. It sits beside the contingency and never inside it —
+            percentiles are not additive and a package&rsquo;s price is.
+            {unpriced > 0 && (
+              <>
+                {" "}
+                {unpriced} action{unpriced === 1 ? " carries" : "s carry"} neither a cost nor a
+                duration, so the total is a floor, not a price.
+              </>
+            )}
+          </p>
+        </>
+      )}
+    </section>
   );
 }

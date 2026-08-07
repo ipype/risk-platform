@@ -111,6 +111,10 @@ def spec_for_dimension(
 ) -> DistributionSpec | None:
     """One elicited dimension as a sampling shape, or ``None`` if it was not assessed.
 
+    ``interpretation`` is the estimate-level default. Where the dimension carries its own
+    override, ``qv.dimension_moments`` prefers it — resolved there rather than here so a
+    caller cannot skip the override by passing the session value and getting away with it.
+
     Point-list shapes are built directly rather than through
     :func:`~app.sim.distributions.spec_from_moments`, which refuses them on purpose: a
     curve cannot be rebuilt from its moments, and pretending otherwise would replace the
@@ -137,6 +141,11 @@ def _estimate_input(row: RiskQuantEstimate) -> qv.EstimateInput:
     Duplicated rather than imported: importing a route module into a service inverts the
     layering, and the alternative — a shared helper on the model — is a bigger change than
     this delivery earns. Worth collapsing when the elicitation agent needs the same map.
+
+    Every field the validator reads has to appear here. A column added to the route's map
+    and forgotten in this one does not fail: it silently simulates something other than
+    what the screen showed, which is the single most expensive class of bug this file can
+    have.
     """
 
     def dim(d: str) -> qv.DimensionInput:
@@ -148,6 +157,7 @@ def _estimate_input(row: RiskQuantEstimate) -> qv.EstimateInput:
             pert_lambda=getattr(row, f"{d}_pert_lambda"),
             points=getattr(row, f"{d}_points"),
             rationale=getattr(row, f"{d}_rationale"),
+            bound_interpretation=getattr(row, f"{d}_bound_interpretation"),
         )
 
     return qv.EstimateInput(
@@ -160,6 +170,7 @@ def _estimate_input(row: RiskQuantEstimate) -> qv.EstimateInput:
         sched_day_basis=row.sched_day_basis,
         source=row.source,
         confidence=row.confidence,
+        cost_base_value=row.cost_base_value,
     )
 
 
@@ -689,8 +700,14 @@ async def assemble(
             )
             continue
 
-        cost_spec = spec_for_dimension(payload.cost, payload.bound_interpretation)
-        sched_spec = spec_for_dimension(payload.sched, payload.bound_interpretation)
+        # Each dimension is widened under its own interpretation. A contract-capped delay
+        # and a P10/P90 cost live on one estimate and no longer have to agree.
+        cost_spec = spec_for_dimension(
+            payload.cost, payload.interpretation_for(payload.cost)
+        )
+        sched_spec = spec_for_dimension(
+            payload.sched, payload.interpretation_for(payload.sched)
+        )
 
         mapping_inputs = _mapping_inputs(
             mappings_by_risk.get(risk.id, ()), activities, known, notes, risk.risk_code
@@ -735,6 +752,18 @@ async def assemble(
             )
             continue
 
+        # A percentage cost with no base of its own falls back to the run's ``base_cost``
+        # inside the engine. That is right for a risk scaling with the whole project and
+        # wrong for one scaling with a package, so the fallback is said out loud here
+        # rather than left to be inferred from a number that looks perfectly reasonable.
+        if est.cost_basis == "pct_of_base" and cost_spec is not None:
+            if est.cost_base_value is None:
+                notes.append(
+                    f"{risk.risk_code}: cost is a percentage with no base of its own, so "
+                    f"it was taken against the run's base cost of "
+                    f"{config.base_cost:,.0f}."
+                )
+
         tags = tuple(sorted(driver_names.get(risk.id, ())))
         used_drivers.update(tags)
         if mapping_inputs:
@@ -749,6 +778,7 @@ async def assemble(
                 is_variability=est.is_variability,
                 cost=cost_spec,
                 cost_basis=est.cost_basis,  # type: ignore[arg-type]
+                cost_base_reference=est.cost_base_value,
                 sched=sched_spec,
                 drivers=tags,
                 mappings=mapping_inputs,
