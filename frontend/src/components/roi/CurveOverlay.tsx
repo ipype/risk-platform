@@ -1,5 +1,5 @@
 import type { CurveRow } from "../../roi-types";
-import { fmtCompact, fmtUnits } from "../sim/format";
+import { fmtCompactUnits, fmtUnits } from "../sim/format";
 
 /**
  * Two cumulative distributions on one axis.
@@ -68,7 +68,7 @@ export function CurveOverlay({ curve, percentile, units }: Props) {
 
         {ticks.map((v) => (
           <text key={v} className="roi-axis" x={x(v)} y={H - PAD.bottom + 20} textAnchor="middle">
-            {fmtCompact(v)}
+            {fmtCompactUnits(v, units)}
           </text>
         ))}
 

@@ -9,3 +9,19 @@
  */
 
 export const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+/**
+ * The symbol put in front of every simulated magnitude.
+ *
+ * The platform stores elicited costs as plain numbers and has no per-project currency
+ * field, so for a long time nothing printed a symbol at all rather than invent one. That
+ * was the right call about correctness and the wrong call about reading: a column of bare
+ * six-figure numbers next to a column of days is ambiguous on the page in a way it never
+ * is in someone's head, and every reviewer supplied the missing `$` mentally anyway.
+ *
+ * So it is printed — but from here, once, not hard-coded at thirty call sites. A
+ * deployment in another currency sets `VITE_CURRENCY` and every figure in the app follows.
+ * The day a project carries its own currency, this constant becomes that field's default
+ * and nothing else has to move.
+ */
+export const CURRENCY = import.meta.env.VITE_CURRENCY ?? "$";

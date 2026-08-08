@@ -231,6 +231,79 @@ class TestDriverSemantics:
         assert run(req).result.delay_days.mean == pytest.approx(0.0)
 
 
+class TestDelayVarianceShare:
+    """The schedule tornado's bar length, as opposed to its ranking."""
+
+    def test_a_risk_that_drives_nothing_reports_none_rather_than_zero(self) -> None:
+        req = SimulationRequest(
+            risks=(
+                RiskInput(
+                    risk_id=1,
+                    code="COST-ONLY",
+                    p_occurrence=0.5,
+                    cost=tri(1.0, 2.0, 3.0),
+                ),
+            ),
+            schedule=chain([10, 20]),
+            config=RunConfig(iterations=500, seed=3),
+        )
+        (row,) = run(req).result.risk_sensitivity
+        assert row.delay_variance_share is None
+
+    def test_a_cost_only_run_reports_no_delay_share_at_all(self) -> None:
+        req = SimulationRequest(
+            risks=(
+                RiskInput(
+                    risk_id=1, code="C", p_occurrence=0.5, cost=tri(1.0, 2.0, 3.0)
+                ),
+            ),
+            config=RunConfig(iterations=500, seed=3),
+        )
+        (row,) = run(req).result.risk_sensitivity
+        assert row.delay_variance_share is None
+
+    def test_the_sole_driver_of_a_certain_chain_owns_the_whole_delay_spread(
+        self,
+    ) -> None:
+        # One risk, one uncertain quantity in the whole model: every unit of variance in
+        # the finish date came from it, so its share is one. This is the case where the
+        # estimator has to be exactly right, because there is nothing else to blame.
+        req = SimulationRequest(
+            risks=(
+                RiskInput(
+                    risk_id=1,
+                    code="DRV",
+                    p_occurrence=1.0,
+                    sched=tri(5.0, 10.0, 30.0),
+                    mappings=(
+                        RiskMappingInput(
+                            mapping_type="duration_driver", activity_ids=("A002",)
+                        ),
+                    ),
+                ),
+            ),
+            schedule=chain([20, 20, 20], uncertain=False),
+            config=RunConfig(iterations=4000, seed=11),
+        )
+        (row,) = run(req).result.risk_sensitivity
+        assert row.delay_variance_share == pytest.approx(1.0, abs=0.02)
+
+    def test_shares_fall_short_of_one_when_the_baseline_is_uncertain(
+        self, simple_request: SimulationRequest
+    ) -> None:
+        # The shortfall is the schedule's own duration uncertainty. Reporting it is the
+        # whole reason these are not renormalised: a register cannot be credited for a
+        # date that an uncertain baseline mostly decided.
+        rows = run(simple_request).result.risk_sensitivity
+        # The two mapped risks; the variability row drives nothing and reports None.
+        shares = [
+            r.delay_variance_share for r in rows if r.delay_variance_share is not None
+        ]
+        assert len(shares) == 2
+        assert all(s > 0.0 for s in shares)
+        assert 0.0 < sum(shares) < 1.0
+
+
 class TestCriticality:
     def test_index_reports_how_often_an_activity_drove_the_finish(self) -> None:
         req = SimulationRequest(

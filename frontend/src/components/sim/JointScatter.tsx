@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { JointConfidence, JointPoint } from "../../simulation-types";
-import { fmtCompact, fmtDays, fmtMoney, fmtPercent } from "./format";
+import { fmtCompactMoney, fmtCompactUnits, fmtDays, fmtMoney, fmtPercent } from "./format";
 
 /**
  * Cost and date read together instead of side by side.
@@ -125,7 +125,7 @@ export default function JointScatter({ joint, defaultTarget = 80 }: Props) {
           <g key={`y${i}`}>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} className="sim-grid" />
             <text x={PAD.left - 10} y={y(v) + 4} className="sim-axis-text" textAnchor="end">
-              {fmtCompact(v)}
+              {fmtCompactMoney(v)}
             </text>
           </g>
         ))}
@@ -137,7 +137,7 @@ export default function JointScatter({ joint, defaultTarget = 80 }: Props) {
             className="sim-axis-text"
             textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
           >
-            {fmtCompact(v)}
+            {fmtCompactUnits(v, "days")}
           </text>
         ))}
 

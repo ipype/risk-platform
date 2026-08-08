@@ -70,7 +70,12 @@ __all__ = ["ENGINE_VERSION", "SimulationResult", "RunArrays", "Outcome", "run"]
 #: be told apart from one that simply had nothing joint to report. Every 1.0.0 percentile
 #: reproduces exactly under 1.1.0, and the request fingerprint is untouched because
 #: neither addition took a new config field.
-ENGINE_VERSION = "1.1.0"
+#:
+#: 1.2.0 moves no number either. It adds ``RiskSensitivity.delay_variance_share`` so the
+#: schedule tornado can be read as a contribution rather than only as a ranking, and the
+#: bump is what lets the UI tell a run that measured no delay share from one that predates
+#: the field — the difference between "this risk drives nothing" and "nobody asked".
+ENGINE_VERSION = "1.2.0"
 
 #: Below this many expected occurrences a risk's own tail is too thinly sampled to read.
 _THIN_TAIL_OCCURRENCES = 30
@@ -791,6 +796,10 @@ def _risk_sensitivity(
         [sched_impact.get(r.risk_id, np.zeros(total_cost.size)) for r in req.risks]
     )
     rho_delay = rank_correlation_with(sched_cols, delay) if delay is not None else None
+    # The same covariance-share estimator as the cost side, pointed at delay instead of
+    # total cost. It is *not* renormalised to sum to one: delay is a max over paths, so
+    # the shortfall is the schedule's own duration uncertainty and is worth reading.
+    delay_shares = variance_shares(sched_cols, delay) if delay is not None else None
 
     # Weights for apportioning the burn term: how each risk's sampled delay moves with
     # the cost that delay produced. Non-negative in every realistic case, since more
@@ -821,6 +830,11 @@ def _risk_sensitivity(
                 cost_variance_share=cost_share,
                 schedule_variance_share=s_share,
                 combined_variance_share=cost_share + (s_share or 0.0),
+                delay_variance_share=(
+                    None
+                    if delay_shares is None or r.risk_id not in sched_impact
+                    else float(delay_shares[j])
+                ),
                 spearman_total_cost=float(rho_cost[j]),
                 spearman_delay=(
                     None

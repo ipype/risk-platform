@@ -612,6 +612,82 @@
   font-weight: 500;
 }
 
+/* --- distribution chart (CDF / PDF / both) ---------------------------------------- */
+
+/* The curve and the density inherit the quantity's colour rather than the chart's, so a
+   cost chart and a delay chart stay told apart when both are scrolled past at speed. The
+   base rules above stay as the cost default; these are modifiers, not replacements. */
+.sim-curve-line.sched {
+  stroke: var(--sim-sched);
+}
+.sim-curve-fill.sched {
+  fill: var(--sim-sched);
+}
+.sim-marker-dot.sched {
+  fill: var(--sim-sched);
+}
+
+/* Low alpha, and a hairline gap between bars from the geometry rather than a stroke: at
+   fifty bins a one-unit stroke is most of a bar. */
+.sim-pdf-bar {
+  fill: var(--sim-cost);
+  opacity: 0.38;
+}
+.sim-pdf-bar.sched {
+  fill: var(--sim-sched);
+}
+.sim-pdf-bar:hover {
+  opacity: 0.62;
+}
+
+.sim-p-input {
+  width: 72px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  background: transparent;
+  color: inherit;
+}
+.sim-p-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.sim-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.sim-chip:disabled:hover {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* Values live here rather than on the plot. Eight labels on a 720-unit axis collide, and
+   a label nudged clear of a collision points at the wrong place. */
+.sim-marker-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.sim-marker-readout > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.sim-marker-readout dt {
+  color: var(--muted);
+}
+.sim-marker-readout dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .sim-tornado-row.clickable {
   cursor: pointer;
 }

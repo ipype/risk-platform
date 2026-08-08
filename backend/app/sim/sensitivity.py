@@ -69,6 +69,21 @@ class RiskSensitivity(BaseModel):
     #: budget only through delay is invisible on the cost share alone, and on a
     #: schedule-driven project that is most of them.
     combined_variance_share: float = 0.0
+    #: Share of the variance of *project delay* — not of cost — owned by this risk's own
+    #: sampled schedule impact. ``cov(impact_j, delay) / var(delay)``, the same estimator
+    #: as :func:`variance_shares` pointed at a different target, and the answer to "which
+    #: risk drives the date" in the same units as "which risk drives the budget".
+    #:
+    #: These do **not** sum to one, and that is the point rather than a defect. Delay is a
+    #: maximum over network paths, so it is not the sum of the per-risk impacts: the
+    #: remainder is the schedule's own background duration uncertainty plus whatever the
+    #: path switching contributes. Normalising to one would hide exactly that, and hiding
+    #: it is how a register with three risks gets credited for a date driven mostly by an
+    #: uncertain baseline. The unexplained remainder is reported on the face of the chart.
+    #:
+    #: ``None`` when the risk drives no activity, matching ``schedule_variance_share`` —
+    #: a zero there would read as measured rather than as inapplicable.
+    delay_variance_share: float | None = None
     spearman_total_cost: float = 0.0
     spearman_delay: float | None = None
     mean_contribution: float = 0.0

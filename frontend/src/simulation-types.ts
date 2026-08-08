@@ -157,6 +157,15 @@ export interface RiskSensitivity {
   /** Null when the risk drives no activity — not zero, which would read as measured. */
   schedule_variance_share?: number | null;
   combined_variance_share: number;
+  /**
+   * Share of the variance of *project delay*, not of cost. Null when the risk drives no
+   * activity, and absent entirely on a run made before engine 1.2.0 — the schedule
+   * tornado tells those two apart and says which it is looking at.
+   *
+   * These do not sum to one and are not meant to: delay is a maximum over network paths,
+   * so the remainder is the schedule's own duration uncertainty.
+   */
+  delay_variance_share?: number | null;
   spearman_total_cost: number;
   spearman_delay?: number | null;
   mean_contribution: number;

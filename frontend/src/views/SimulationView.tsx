@@ -9,6 +9,7 @@ import {
   startRun,
 } from "../sim-api";
 import type {
+  RiskSensitivity,
   RunDetail,
   RunPreview,
   RunRequest,
@@ -18,8 +19,8 @@ import type {
 } from "../simulation-types";
 import CriticalityTable from "../components/sim/CriticalityTable";
 import JointScatter, { JointVerdict } from "../components/sim/JointScatter";
-import SCurve from "../components/sim/SCurve";
-import Tornado from "../components/sim/Tornado";
+import DistributionChart from "../components/sim/DistributionChart";
+import Tornado, { TornadoMetric } from "../components/sim/Tornado";
 import { fmtDays, fmtDuration, fmtMoney, fmtPercent } from "../components/sim/format";
 import "../simulation.css";
 
@@ -572,7 +573,12 @@ function RunResult({
       )}
 
       <h3 className="sim-h">Total cost</h3>
-      <SCurve series={result.total_cost} markers={[50, 80, 95]} />
+      <DistributionChart
+        series={result.total_cost}
+        defaultMarkers={[50, 80, 95]}
+        accent="cost"
+        idPrefix={`cost-${run.id}`}
+      />
 
       <h3 className="sim-h">Contingency by confidence</h3>
       <div className="sim-table-wrap">
@@ -615,7 +621,12 @@ function RunResult({
             the imported schedule, which came out of P6 under constraints and progress
             overrides this pass does not model.
           </p>
-          <SCurve series={result.delay_days} markers={[50, 80]} />
+          <DistributionChart
+            series={result.delay_days}
+            defaultMarkers={[50, 80]}
+            accent="sched"
+            idPrefix={`delay-${run.id}`}
+          />
         </>
       )}
 
@@ -644,14 +655,10 @@ function RunResult({
       )}
 
       <h3 className="sim-h">What drives the answer</h3>
-      <Tornado rows={result.risk_sensitivity} />
-
-      {result.delay_days && (
-        <>
-          <h3 className="sim-h">What drives the date</h3>
-          <Tornado rows={result.risk_sensitivity} metric="delay" />
-        </>
-      )}
+      <SensitivitySection
+        rows={result.risk_sensitivity}
+        hasSchedule={result.delay_days != null}
+      />
 
       <h3 className="sim-h">Activity criticality</h3>
       <CriticalityTable rows={result.activity_criticality} />
@@ -693,6 +700,55 @@ function RunResult({
           That is a finding about the driver tagging, not an implementation detail.
         </p>
       )}
+    </>
+  );
+}
+
+/**
+ * The three sensitivity readings, one at a time.
+ *
+ * One chart with a switch rather than three stacked charts: they answer the same question
+ * about different outcomes, and side by side they get read as a ranking that disagrees
+ * with itself. Switching in place makes the disagreement the point — the top risk on the
+ * budget is routinely not the top risk on the date, and seeing the order change under the
+ * same twelve labels is the finding.
+ *
+ * Its own component because `RunResult` returns early four times before it gets here, and
+ * a hook after an early return is not a hook.
+ */
+function SensitivitySection({
+  rows,
+  hasSchedule,
+}: {
+  rows: RiskSensitivity[];
+  hasSchedule: boolean;
+}) {
+  const [metric, setMetric] = useState<TornadoMetric>("combined");
+  const options: { value: TornadoMetric; label: string }[] = [
+    { value: "cost", label: "Cost" },
+    ...(hasSchedule ? [{ value: "schedule" as TornadoMetric, label: "Schedule" }] : []),
+    { value: "combined", label: "Both together" },
+  ];
+  // A cost-only run has no schedule reading to offer and must not be left showing one.
+  const active = !hasSchedule && metric === "schedule" ? "combined" : metric;
+
+  return (
+    <>
+      <div className="sim-jcl-controls" role="group" aria-label="Sensitivity measure">
+        <span className="sim-jcl-controls-label">Contribution to</span>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            className={active === o.value ? "sim-chip active" : "sim-chip"}
+            aria-pressed={active === o.value}
+            onClick={() => setMetric(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <Tornado rows={rows} metric={active} />
     </>
   );
 }
