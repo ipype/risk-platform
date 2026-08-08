@@ -16,6 +16,7 @@ from app.api.routes import (
     matrix,
     mitigation_plans,
     mitigations,
+    proposals,
     quant,
     rbs,
     reports,
@@ -67,6 +68,7 @@ app.include_router(quant.router)
 app.include_router(simulations.router)
 app.include_router(roi.router)
 app.include_router(reports.router)
+app.include_router(proposals.router)
 
 
 @app.get("/", tags=["root"])

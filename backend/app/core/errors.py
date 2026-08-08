@@ -204,3 +204,52 @@ class QuantEstimateLocked(QuantError):
             f"The {scenario.replace('_', ' ')} estimate for risk {risk_id} is locked "
             "against a simulation run. Unlock it explicitly before editing."
         )
+
+
+class ProposalError(RiskPlatformError):
+    """Base class for proposal ledger failures."""
+
+
+class ProposalNotDisposable(ProposalError):
+    """The proposal has already been ruled on.
+
+    Terminal is terminal. Re-opening a disposition would mean the ledger records the
+    latest opinion rather than the decision that was actually made at the time, and the
+    decision is the thing an audit asks for.
+    """
+
+    def __init__(self, proposal_id: int, status: str) -> None:
+        self.proposal_id = proposal_id
+        self.status = status
+        super().__init__(
+            f"Proposal {proposal_id} is already {status!r}. A disposition is final; "
+            "raise a new proposal if the answer has changed."
+        )
+
+
+class ProposalStale(ProposalError):
+    """The target moved after the proposal was drafted.
+
+    Raised rather than resolved. Either answer — apply anyway, or drop it — is a judgement
+    about whose edit wins, and silently choosing the model's would be the single most
+    damaging default this subsystem could have.
+    """
+
+    def __init__(self, proposal_id: int, observed: object, current: object) -> None:
+        self.proposal_id = proposal_id
+        self.observed = observed
+        self.current = current
+        super().__init__(
+            f"Proposal {proposal_id} was drafted against a value that has since changed. "
+            "Accepting it would overwrite an edit made after the suggestion. Re-send with "
+            "confirm_stale=true to apply it anyway."
+        )
+
+
+class ProposalTargetInvalid(ProposalError):
+    """The proposal cannot be applied as written.
+
+    An unknown target type, a field the applier will not set, a merge that names nothing,
+    a rejection with no reason. Every one of these leaves the proposal pending, because a
+    proposal marked accepted whose value never landed is worse than no ledger at all.
+    """

@@ -16,6 +16,9 @@ from app.core.errors import (
     MalformedScheduleFile,
     ParserUnavailable,
     ProjectNotFound,
+    ProposalNotDisposable,
+    ProposalStale,
+    ProposalTargetInvalid,
     QuantEstimateInvalid,
     QuantEstimateLocked,
     RiskPlatformError,
@@ -182,6 +185,46 @@ async def _scope_delete_blocked(request: Request, exc: ScopeDeleteBlocked) -> JS
     )
 
 
+async def _proposal_not_disposable(
+    request: Request, exc: ProposalNotDisposable
+) -> JSONResponse:
+    # 409, like the quant lock: the verb is real, the state does not accept it.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "proposal_not_disposable",
+            str(exc),
+            proposal_id=exc.proposal_id,
+            status=exc.status,
+        ),
+    )
+
+
+async def _proposal_stale(request: Request, exc: ProposalStale) -> JSONResponse:
+    # 409 and both values, so the client can show the reviewer what changed under the
+    # suggestion rather than asking them to confirm something they cannot see.
+    return JSONResponse(
+        status_code=409,
+        content=_payload(
+            "proposal_stale",
+            str(exc),
+            proposal_id=exc.proposal_id,
+            observed_value=exc.observed,
+            current_value=exc.current,
+        ),
+    )
+
+
+async def _proposal_target_invalid(
+    request: Request, exc: ProposalTargetInvalid
+) -> JSONResponse:
+    # 422: the payload parsed and the types are right; what it describes is not something
+    # the ledger can apply.
+    return JSONResponse(
+        status_code=422, content=_payload("proposal_target_invalid", str(exc))
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -201,4 +244,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ScopeNotFound, _scope_not_found)  # type: ignore[arg-type]
     app.add_exception_handler(ScopeInvalid, _scope_invalid)  # type: ignore[arg-type]
     app.add_exception_handler(ScopeDeleteBlocked, _scope_delete_blocked)  # type: ignore[arg-type]
+    app.add_exception_handler(ProposalNotDisposable, _proposal_not_disposable)  # type: ignore[arg-type]
+    app.add_exception_handler(ProposalStale, _proposal_stale)  # type: ignore[arg-type]
+    app.add_exception_handler(ProposalTargetInvalid, _proposal_target_invalid)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

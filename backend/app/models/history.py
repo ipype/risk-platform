@@ -45,6 +45,13 @@ class RiskHistory(Base):
     action: Mapped[str] = mapped_column(String(20))  # created / updated / deleted
     actor: Mapped[str] = mapped_column(String(120), default="Unknown")
     changes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: Where this change came from: ``proposal:<id>``, ``import:<file>``, ``sim:<run>``.
+    #: NULL means a human typed it, which is the correct reading for every row written
+    #: before the proposal ledger existed — hence nullable with no backfill (0021). It
+    #: lives on the history row and not on ``risk`` because "who decided this" is a
+    #: question about an event; on the domain row the next edit would overwrite the
+    #: answer.
+    provenance: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
@@ -90,6 +97,7 @@ class RiskHistoryRead(BaseModel):
     action: str
     actor: str
     changes: list[ChangeItem] | None
+    provenance: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
