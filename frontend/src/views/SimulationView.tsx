@@ -19,9 +19,11 @@ import type {
 } from "../simulation-types";
 import CriticalityTable from "../components/sim/CriticalityTable";
 import JointScatter, { JointVerdict } from "../components/sim/JointScatter";
+import JointTargets from "../components/sim/JointTargets";
 import DistributionChart from "../components/sim/DistributionChart";
+import ScheduleDistribution from "../components/sim/ScheduleDistribution";
 import Tornado, { TornadoMetric } from "../components/sim/Tornado";
-import { fmtDays, fmtDuration, fmtMoney, fmtPercent } from "../components/sim/format";
+import { fmtDuration, fmtMoney, fmtPercent } from "../components/sim/format";
 import "../simulation.css";
 
 /**
@@ -608,24 +610,13 @@ function RunResult({
 
       {result.delay_days && (
         <>
-          <h3 className="sim-h">Schedule delay</h3>
-          <p className="sim-note">
-            In <strong>elapsed days</strong>, not working days. A schedule spanning several
-            calendars has no single working week, so durations are converted to elapsed
-            time before the network is run and the delay comes back on that axis.
-          </p>
-          <p className="sim-note">
-            Measured against this engine's own deterministic forward pass, which finishes
-            on day{" "}
-            {fmtDays(result.deterministic.baseline_finish_day)} — not against the dates in
-            the imported schedule, which came out of P6 under constraints and progress
-            overrides this pass does not model.
-          </p>
-          <DistributionChart
-            series={result.delay_days}
-            defaultMarkers={[50, 80]}
-            accent="sched"
-            idPrefix={`delay-${run.id}`}
+          <h3 className="sim-h">Schedule</h3>
+          <ScheduleDistribution
+            delay={result.delay_days}
+            finish={result.finish_day}
+            dayZero={run.schedule_start_date}
+            baselineFinishDay={result.deterministic.baseline_finish_day}
+            idPrefix={String(run.id)}
           />
         </>
       )}
@@ -637,6 +628,7 @@ function RunResult({
             <>
               <JointVerdict joint={result.joint} />
               <JointScatter joint={result.joint} />
+              <JointTargets joint={result.joint} dayZero={run.schedule_start_date} />
             </>
           ) : result.joint === null ? (
             <p className="sim-note">

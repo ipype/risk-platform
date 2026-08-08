@@ -173,3 +173,82 @@ class TestThroughTheEngine:
         blob = r.model_dump()
         assert blob["joint"]["frontiers"][0]["points"][0]["cost_p"] > 0
         assert len(blob["joint"]["scatter"][0]) == 2
+
+
+class TestGrid:
+    """The mesh a reader prices their own target pair against.
+
+    Its whole claim is that it is *counted*, not fitted: every assertion here is against
+    a brute-force count over the same sample, because anything softer would let an
+    interpolation creep into the construction without failing a test.
+    """
+
+    def test_every_node_is_an_exact_count(self) -> None:
+        cost, delay = _independent()
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None
+        grid = view.grid
+        assert grid is not None
+        for i in (0, 1, 17, 40, len(grid.delay_days) - 1):
+            for j in (0, 2, 25, 49, len(grid.total_cost) - 1):
+                truth = int(
+                    np.sum((delay <= grid.delay_days[i]) & (cost <= grid.total_cost[j]))
+                )
+                assert grid.counts[i][j] == truth
+
+    def test_the_mesh_is_the_marginal_quantiles(self) -> None:
+        cost, delay = _independent()
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None and view.grid is not None
+        nodes = len(view.grid.delay_days)
+        qs = np.linspace(0.0, 1.0, nodes)
+        assert view.grid.delay_days == pytest.approx(tuple(np.quantile(delay, qs)))
+        assert view.grid.total_cost == pytest.approx(tuple(np.quantile(cost, qs)))
+
+    def test_it_is_non_decreasing_along_both_axes(self) -> None:
+        """A reader brackets a mid-cell target between two nodes. That is only a bound
+        if the surface cannot dip between them."""
+        cost, delay = _independent()
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None and view.grid is not None
+        counts = np.array(view.grid.counts)
+        assert np.all(np.diff(counts, axis=0) >= 0)
+        assert np.all(np.diff(counts, axis=1) >= 0)
+
+    def test_the_corners_are_none_and_all(self) -> None:
+        cost, delay = _independent()
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None and view.grid is not None
+        assert view.grid.counts[-1][-1] == view.grid.iterations == cost.size
+        # The origin is the single cheapest, earliest iteration at most — never the
+        # whole sample, which would mean the mesh had collapsed.
+        assert view.grid.counts[0][0] <= 1
+
+    def test_the_last_row_and_column_are_the_marginals(self) -> None:
+        cost, delay = _independent()
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None and view.grid is not None
+        grid = view.grid
+        for j, c in enumerate(grid.total_cost):
+            assert grid.counts[-1][j] == int(np.sum(cost <= c))
+        for i, d in enumerate(grid.delay_days):
+            assert grid.counts[i][-1] == int(np.sum(delay <= d))
+
+    def test_a_degenerate_axis_still_produces_a_readable_mesh(self) -> None:
+        """Every iteration finishing on the same day collapses the delay nodes onto one
+        value. The mesh must still count, because a schedule with no risk mapped to it
+        is a real run, not a malformed one."""
+        g = np.random.default_rng(11)
+        cost = g.normal(1_000_000, 100_000, 2000)
+        delay = np.zeros(2000)
+        view = joint_confidence(cost, delay, targets=(80.0,))
+        assert view is not None and view.grid is not None
+        assert set(view.grid.delay_days) == {0.0}
+        assert view.grid.counts[-1][-1] == 2000
+        assert view.grid.counts[0][-1] == 2000
+
+    def test_the_grid_survives_serialisation(self, simple_request) -> None:
+        blob = run(simple_request).result.model_dump()
+        grid = blob["joint"]["grid"]
+        assert len(grid["counts"]) == len(grid["delay_days"]) == len(grid["total_cost"])
+        assert grid["counts"][-1][-1] == grid["iterations"]

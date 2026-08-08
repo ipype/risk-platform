@@ -20,7 +20,7 @@ as the paragraph above says; the cancel route refuses anything that is not ``que
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -38,6 +38,7 @@ from app.services import quant_validation as qv
 from app.core.errors import SimulationRunNotCancellable
 from app.services.scope import descendant_ids, resolve_read_scope, resolve_write_scope
 from app.services.sim_assembly import Assembly, assemble, latest_dcma
+from app.services.sim_calendars import version_window
 from app.services.sim_dispatch import dispatch, revoke
 from app.services.sim_execute import load_run
 from app.sim import RunConfig
@@ -186,6 +187,13 @@ class RunDetail(RunSummary):
     gate_override_reason: str | None = None
     excluded: list = []
     assembly_notes: list = []
+    #: Day zero of the simulated network — the date every ``finish_day`` in the result is
+    #: an offset from. Resolved at read time from the schedule version rather than stored
+    #: on the run: the version is append-only, so the answer cannot move, and a column
+    #: would be a second copy of a fact that already has an owner. ``None`` on a cost-only
+    #: run, and on a run whose schedule version has since been deleted — in both cases the
+    #: day numbers are still exact and only the calendar rendering is unavailable.
+    schedule_start_date: date | None = None
     #: The engine's ``SimulationResult``, serialised whole. Not re-declared field by field
     #: here: the engine owns that shape, and a second declaration would drift from it.
     result: dict | None = None
@@ -403,7 +411,8 @@ async def create_run(
     ),
 ) -> RunDetail:
     scope = await resolve_write_scope(db, scope_id)
-    return run_detail(await start_run(db, payload, scope_id=scope.id, actor=actor))
+    run = await start_run(db, payload, scope_id=scope.id, actor=actor)
+    return run_detail(run, await day_zero(db, run))
 
 
 # --------------------------------------------------------------------------------------
@@ -411,14 +420,29 @@ async def create_run(
 # --------------------------------------------------------------------------------------
 
 
-def run_detail(run: SimulationRun) -> RunDetail:
+def run_detail(run: SimulationRun, schedule_start_date: date | None = None) -> RunDetail:
     return RunDetail(
         **RunSummary.model_validate(run).model_dump(),
         gate_override_reason=run.gate_override_reason,
         excluded=list(run.excluded or []),
         assembly_notes=list(run.assembly_notes or []),
+        schedule_start_date=schedule_start_date,
         result=run.result_json,
     )
+
+
+async def day_zero(db: AsyncSession, run: SimulationRun) -> date | None:
+    """The date the run's day numbers count from, or ``None`` if there is no network.
+
+    Goes through ``version_window`` rather than reading ``ScheduleVersion.data_date``
+    directly, because a schedule that parsed without a data date still simulated — off the
+    earliest activity start — and reading the column alone would return no date for a run
+    that has perfectly good ones.
+    """
+    if run.schedule_version_id is None:
+        return None
+    start, _ = await version_window(db, run.schedule_version_id)
+    return start
 
 
 @router.get("", response_model=list[RunSummary])
@@ -447,7 +471,7 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)) -> RunDetail:
     run = await load_run(db, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Simulation run not found")
-    return run_detail(run)
+    return run_detail(run, await day_zero(db, run))
 
 
 @router.post("/{run_id}/cancel", response_model=RunDetail)
@@ -479,4 +503,5 @@ async def cancel_run(
         f"Cancelled by {actor} before a worker claimed it.",
     ]
     await db.commit()
-    return run_detail(await load_run(db, run_id) or run)
+    fresh = await load_run(db, run_id) or run
+    return run_detail(fresh, await day_zero(db, fresh))

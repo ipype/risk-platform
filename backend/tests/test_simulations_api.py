@@ -12,6 +12,8 @@ refusals; the numbers themselves are pinned in ``tests/sim/``.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -36,6 +38,7 @@ from app.models.schedule import (
     ScheduleVersion,
 )
 from app.models.simulation import SimulationRun  # noqa: F401  (registers the table)
+from app.services.sim_calendars import load_calendar_set
 
 FAST = {"iterations": 400, "seed": 7}
 
@@ -673,3 +676,68 @@ async def test_a_running_run_cannot_be_cancelled(client):
 async def test_cancelling_a_missing_run_is_a_404(client):
     res = await client.post("/simulations/9999/cancel")
     assert res.status_code == 404
+
+
+# --------------------------------------------------------------------------------------
+# the calendar anchor
+# --------------------------------------------------------------------------------------
+#
+# Every day number the engine returns — ``baseline_finish_day``, ``finish_day``, the delay
+# series — is an offset from day zero of the parsed network. The run itself has no idea
+# what date that is: the anchor lives on the schedule version, and the result would be
+# unreadable as a date without it. These pin which date it resolves to and, more
+# importantly, that it is the *same* rule the assembly counted from.
+
+
+async def _set_data_date(client, when) -> None:
+    async with client._maker() as session:
+        version = await session.get(ScheduleVersion, 1)
+        version.data_date = when
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_cost_only_run_has_no_calendar_anchor(client):
+    created = (await client.post("/simulations", json=FAST)).json()
+    assert created["schedule_start_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_scheduled_run_is_anchored_on_the_data_date(client):
+    await _pass_gate(client)
+    await _set_data_date(client, datetime(2026, 3, 2, 8, 0))
+    created = (
+        await client.post("/simulations", json={"schedule_version_id": 1, **FAST})
+    ).json()
+    assert created["schedule_start_date"] == "2026-03-02"
+    fetched = (await client.get(f"/simulations/{created['id']}")).json()
+    assert fetched["schedule_start_date"] == "2026-03-02"
+
+
+@pytest.mark.asyncio
+async def test_a_schedule_with_no_data_date_falls_back_to_the_earliest_start(client):
+    """A parse that carried no data date still simulated, off the earliest activity
+    start. Reading the column alone would return no date for a run that has good ones."""
+    await _pass_gate(client)
+    async with client._maker() as session:
+        first = await session.get(ScheduleActivity, 1)
+        first.early_start = datetime(2026, 5, 11, 7, 0)
+        await session.commit()
+    created = (
+        await client.post("/simulations", json={"schedule_version_id": 1, **FAST})
+    ).json()
+    assert created["schedule_start_date"] == "2026-05-11"
+
+
+@pytest.mark.asyncio
+async def test_the_anchor_matches_what_the_calendars_counted_from(client):
+    """The one failure mode worth a test of its own: the run's dates and the run's
+    arithmetic drifting onto different origins, which nothing downstream would show."""
+    await _pass_gate(client)
+    await _set_data_date(client, datetime(2026, 3, 2, 8, 0))
+    created = (
+        await client.post("/simulations", json={"schedule_version_id": 1, **FAST})
+    ).json()
+    async with client._maker() as session:
+        calendars = await load_calendar_set(session, 1)
+    assert created["schedule_start_date"] == calendars.window_start.isoformat()

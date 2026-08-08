@@ -88,3 +88,77 @@ export function fmtDuration(ms: number | null | undefined): string {
   if (seconds < 90) return `${days.format(seconds)} s`;
   return `${days.format(seconds / 60)} min`;
 }
+
+/* --------------------------------------------------------------------------------- *
+ * calendar dates
+ *
+ * Every day number the engine returns is elapsed days from day zero of the parsed
+ * network, and elapsed days are calendar days by construction — that conversion is the
+ * whole reason the engine works in them. So a finish day becomes a date by plain
+ * addition, with no calendar to walk and no working week to honour.
+ *
+ * All of it in UTC. The anchor arrives as a bare `YYYY-MM-DD` with no time and no zone,
+ * and parsing that through the local zone puts a reader west of Greenwich a day early on
+ * every date the screen prints. Nothing here is a moment in time; these are dates.
+ * --------------------------------------------------------------------------------- */
+
+const DAY_MS = 86_400_000;
+
+const dateFmt = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+const compactDateFmt = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
+/** `YYYY-MM-DD` to a UTC midnight, or null if it is not one. */
+export function parseDay(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Day zero plus `day` elapsed days. Fractions round to the nearest whole date. */
+export function dayToDate(
+  dayZero: string | null | undefined,
+  day: number | null | undefined
+): Date | null {
+  const base = parseDay(dayZero);
+  if (base == null || day == null || !Number.isFinite(day)) return null;
+  return new Date(base + Math.round(day) * DAY_MS);
+}
+
+/** The inverse: whole elapsed days from day zero to `iso`. */
+export function dateToDay(
+  dayZero: string | null | undefined,
+  iso: string | null | undefined
+): number | null {
+  const base = parseDay(dayZero);
+  const at = parseDay(iso);
+  if (base == null || at == null) return null;
+  return Math.round((at - base) / DAY_MS);
+}
+
+/** `YYYY-MM-DD`, which is what a native date input wants back. */
+export function toIsoDay(date: Date | null | undefined): string {
+  if (date == null || Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+export function fmtDate(date: Date | null | undefined): string {
+  if (date == null || Number.isNaN(date.getTime())) return "—";
+  return dateFmt.format(date);
+}
+
+/** Axis ticks, where the year will not fit four times across a plot. */
+export function fmtCompactDate(date: Date | null | undefined): string {
+  if (date == null || Number.isNaN(date.getTime())) return "—";
+  return compactDateFmt.format(date);
+}

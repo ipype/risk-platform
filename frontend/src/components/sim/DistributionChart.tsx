@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { SeriesSummary } from "../../simulation-types";
-import { fmtCompactUnits, fmtUnits } from "./format";
+import { dayToDate, fmtCompactDate, fmtCompactUnits, fmtDate, fmtUnits } from "./format";
 
 /**
  * One simulated quantity, read either way round.
@@ -18,12 +18,24 @@ import { fmtCompactUnits, fmtUnits } from "./format";
  * second y-axis, which is the price of not making the reader hold one chart in their head
  * while looking at the other.
  *
+ * A days series can be read as a calendar date instead. A P80 of "412 days" answers a
+ * question nobody asked: a schedule is committed against a date, and making the reader add
+ * 412 to a data date they have to go and look up is how a screen full of correct numbers
+ * still loses an argument. Elapsed days are calendar days by construction, so the
+ * conversion is addition — but it needs day zero, which only the schedule version knows,
+ * so the control appears only when the run carries one.
+ *
  * Percentile markers are user-taggable rather than fixed at P50/P80. Contract regimes
  * differ — P90 for a sanction case, P50 for an unbiased forecast, P95 where a lender is
  * involved — and a screen that hard-codes the analyst's own convention makes everyone
  * else do arithmetic against a picture. Tagged values are read off the strip beneath the
  * chart, not off the plot: eight labels on a plot 720 units wide collide, and a label that
  * has been nudged to avoid a collision is a label pointing at the wrong place.
+ *
+ * An added percentile keeps its chip after being unmarked, and carries an explicit delete.
+ * Toggling a chip off and having it vanish makes "hide this line" and "I typed 87 by
+ * mistake" the same gesture with the same irreversible result, and the reader who wanted
+ * the first has to retype the number to get it back.
  *
  * Hand-rolled SVG for the reason the Gantt and the tornado are: `package.json` carries two
  * runtime dependencies, and a charting library would be a third for a polyline, fifty
@@ -51,6 +63,16 @@ interface Props {
   title?: string;
   /** Distinguishes the control ids when two charts are on screen at once. */
   idPrefix?: string;
+  /**
+   * `YYYY-MM-DD` day zero of the network. Set it on a days series and the reader can
+   * switch the whole chart onto a calendar axis; leave it off and there is no control,
+   * because a date the platform cannot anchor is a date it must not print.
+   */
+  dayZero?: string | null;
+  /** Added to every series value before it becomes a date. */
+  dateOffsetDays?: number;
+  /** Which reading the chart opens on, when a date reading is available at all. */
+  defaultAsDate?: boolean;
 }
 
 /**
@@ -88,12 +110,33 @@ export default function DistributionChart({
   accent,
   title,
   idPrefix = "dist",
+  dayZero = null,
+  dateOffsetDays = 0,
+  defaultAsDate = false,
 }: Props) {
   const [mode, setMode] = useState<ChartMode>(defaultMode);
   const [markers, setMarkers] = useState<number[]>(() =>
     [...new Set(defaultMarkers)].sort((a, b) => a - b)
   );
+  // Percentiles the reader typed. Held apart from `markers` so unmarking one leaves the
+  // chip in place: hiding a line and discarding a number are different intentions and
+  // must not be the same click.
+  const [custom, setCustom] = useState<number[]>(() =>
+    [...new Set(defaultMarkers)].filter((p) => !PRESETS.includes(p)).sort((a, b) => a - b)
+  );
   const [draft, setDraft] = useState("");
+
+  const dateReadable = dayZero != null && series.units === "days";
+  const [asDate, setAsDate] = useState(defaultAsDate);
+  const onDates = dateReadable && asDate;
+
+  /** The x-axis formatter for whichever reading is live. */
+  const fmtX = (v: number | null | undefined) =>
+    onDates ? fmtDate(dayToDate(dayZero, (v ?? NaN) + dateOffsetDays)) : fmtUnits(v, series.units);
+  const fmtXTick = (v: number) =>
+    onDates
+      ? fmtCompactDate(dayToDate(dayZero, v + dateOffsetDays))
+      : fmtCompactUnits(v, series.units);
 
   const tone = accent ?? (series.units === "days" ? "sched" : "cost");
   const label = title ?? series.label;
@@ -127,6 +170,12 @@ export default function DistributionChart({
     );
   }
 
+  /** Drop an added percentile entirely — off the chart and out of the chip row. */
+  function remove(p: number) {
+    setMarkers((current) => current.filter((x) => x !== p));
+    setCustom((current) => current.filter((x) => x !== p));
+  }
+
   function addDraft() {
     const p = Number(draft);
     if (!Number.isFinite(p) || p <= 0 || p >= 100) return;
@@ -136,6 +185,11 @@ export default function DistributionChart({
     setMarkers((current) =>
       current.includes(rounded) ? current : [...current, rounded].sort((a, b) => a - b)
     );
+    if (!PRESETS.includes(rounded)) {
+      setCustom((current) =>
+        current.includes(rounded) ? current : [...current, rounded].sort((a, b) => a - b)
+      );
+    }
     setDraft("");
   }
 
@@ -194,21 +248,67 @@ export default function DistributionChart({
         ))}
       </div>
 
+      {dateReadable && (
+        <div className="sim-jcl-controls" role="group" aria-label={`${label} axis reading`}>
+          <span className="sim-jcl-controls-label">Read as</span>
+          <button
+            type="button"
+            className={onDates ? "sim-chip" : "sim-chip active"}
+            aria-pressed={!onDates}
+            onClick={() => setAsDate(false)}
+          >
+            Days
+          </button>
+          <button
+            type="button"
+            className={onDates ? "sim-chip active" : "sim-chip"}
+            aria-pressed={onDates}
+            onClick={() => setAsDate(true)}
+          >
+            Date
+          </button>
+        </div>
+      )}
+
       <div className="sim-jcl-controls" role="group" aria-label={`${label} percentile markers`}>
         <span className="sim-jcl-controls-label">Mark</span>
-        {[...new Set([...PRESETS, ...markers])]
+        {[...new Set([...PRESETS, ...custom, ...markers])]
           .sort((a, b) => a - b)
-          .map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={markers.includes(p) ? "sim-chip active" : "sim-chip"}
-              aria-pressed={markers.includes(p)}
-              onClick={() => toggle(p)}
-            >
-              P{p}
-            </button>
-          ))}
+          .map((p) => {
+            const on = markers.includes(p);
+            // A preset is furniture and stays; anything the reader introduced can go.
+            const removable = !PRESETS.includes(p);
+            const chip = (
+              <button
+                type="button"
+                className={on ? "sim-chip active" : "sim-chip"}
+                aria-pressed={on}
+                onClick={() => toggle(p)}
+              >
+                P{p}
+              </button>
+            );
+            // Nested buttons are invalid, so the delete is a sibling in a wrapper rather
+            // than a child of the chip it belongs to.
+            return removable ? (
+              <span key={p} className={on ? "sim-chip-group active" : "sim-chip-group"}>
+                {chip}
+                <button
+                  type="button"
+                  className="sim-chip-x"
+                  aria-label={`Remove the P${p} marker from ${label}`}
+                  title={`Remove P${p}`}
+                  onClick={() => remove(p)}
+                >
+                  ×
+                </button>
+              </span>
+            ) : (
+              <span key={p} className="sim-chip-slot">
+                {chip}
+              </span>
+            );
+          })}
         <input
           className="sim-p-input"
           type="number"
@@ -237,9 +337,9 @@ export default function DistributionChart({
         className="sim-svg"
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label={`${label}: ${modeLabel[mode]} from ${fmtUnits(lo, series.units)} to ${fmtUnits(hi, series.units)} over ${series.iterations.toLocaleString()} iterations${
+        aria-label={`${label}: ${modeLabel[mode]} from ${fmtX(lo)} to ${fmtX(hi)} over ${series.iterations.toLocaleString()} iterations${
           marked.length > 0
-            ? `, marked at ${marked.map((m) => `P${m.p} ${fmtUnits(m.value, series.units)}`).join(", ")}`
+            ? `, marked at ${marked.map((m) => `P${m.p} ${fmtX(m.value)}`).join(", ")}`
             : ""
         }`}
       >
@@ -282,7 +382,7 @@ export default function DistributionChart({
                 className={`sim-pdf-bar ${tone}`}
               >
                 <title>
-                  {`${fmtUnits(b.lo, series.units)} – ${fmtUnits(b.hi, series.units)}: ` +
+                  {`${fmtX(b.lo)} – ${fmtX(b.hi)}: ` +
                     `${b.count.toLocaleString()} iterations (${(b.rel * 100).toFixed(2)}%)`}
                 </title>
               </rect>
@@ -343,7 +443,7 @@ export default function DistributionChart({
             className="sim-axis-text"
             textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
           >
-            {fmtCompactUnits(v, series.units)}
+            {fmtXTick(v)}
           </text>
         ))}
       </svg>
@@ -353,7 +453,7 @@ export default function DistributionChart({
           {marked.map((m) => (
             <div key={m.p}>
               <dt>P{m.p}</dt>
-              <dd>{fmtUnits(m.value, series.units)}</dd>
+              <dd>{fmtX(m.value)}</dd>
             </div>
           ))}
         </dl>
@@ -361,7 +461,17 @@ export default function DistributionChart({
 
       <figcaption className="sim-chart-caption">
         {label} — {series.iterations.toLocaleString()} iterations, mean{" "}
-        {fmtUnits(series.mean, series.units)}, sd {fmtUnits(series.sd, series.units)}.
+        {fmtX(series.mean)}, sd {fmtUnits(series.sd, series.units)}.
+        {/* The spread stays in days on either reading: a standard deviation is a width,
+            and a width has no date. */}
+        {onDates && (
+          <span className="sim-chart-note">
+            Dates are day zero of the schedule plus the simulated elapsed days, rounded to
+            the day. Elapsed rather than working days, so a finish landing on a weekend or
+            a shutdown is shown where the arithmetic puts it rather than moved to the next
+            working morning.
+          </span>
+        )}
         {showPdf && bins.length > 0 && (
           <span className="sim-chart-note">
             Bars are the share of iterations falling in each of {bins.length} bins{" "}

@@ -886,3 +886,91 @@
   padding: 12px 14px;
   margin-top: 12px;
 }
+
+/* An added percentile carries its own delete. The chip and the delete are siblings in a
+   wrapper rather than nested, because a button inside a button is invalid and screen
+   readers treat the inner one as unreachable. The pair reads as one control: the wrapper
+   owns the pill border and the chip inside it gives its own up. */
+.sim-chip-slot,
+.sim-chip-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.sim-chip-slot {
+  border: 0;
+}
+.sim-chip-group:hover {
+  border-color: var(--primary);
+}
+.sim-chip-group .sim-chip {
+  border: 0;
+  border-radius: 0;
+}
+.sim-chip-x {
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+/* The active state is set in JSX rather than with `:has()`, so the chip row does not
+   depend on a selector the build has no way to polyfill. */
+.sim-chip-group.active {
+  border-color: var(--primary);
+}
+.sim-chip-group.active .sim-chip-x {
+  background: var(--primary);
+  border-left-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+.sim-chip-x:hover {
+  color: var(--danger, #b03030);
+  background: #fbeaea;
+  border-left-color: #f0cfcf;
+}
+.sim-chip-x:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* --- pricing a target pair -------------------------------------------------------- */
+
+.sim-targets {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.sim-targets h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-targets-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.sim-targets-fields .sim-field {
+  margin-bottom: 4px;
+}
+.sim-targets-figure {
+  display: flex;
+  flex-direction: column;
+  margin: 10px 0 8px;
+}
+.sim-targets-marginals {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.sim-targets-marginals strong {
+  font-variant-numeric: tabular-nums;
+}

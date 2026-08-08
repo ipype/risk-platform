@@ -1,158 +1,130 @@
-# APPLY — simulation tab: currency, PDF/CDF, three-way sensitivity
+# APPLY — simulation tab: schedule dates, deletable percentiles, target-pair pricing
 
-Folder-swap. Unpack over the repo root, paths intact. Seventeen files: fourteen
-whole-file replacements, three new, and one deletion the zip cannot make itself.
+Folder-swap. Unpack over the repo root, paths intact. Fourteen files: twelve replacements,
+two new. No migration, no deletion.
+
+```
+unzip -o sim-schedule-dates-and-targets.zip -d /path/to/Risk-Platform
+cd /path/to/Risk-Platform
+git status --porcelain --untracked-files=all
+```
+
+**Note: `APPLY.md` is currently tracked on `main`** — the previous delivery's copy was
+committed at `b049164` rather than deleted. This zip overwrites it. Delete it before
+committing and the stale file leaves `main` with this commit.
 
 ## Commit message
 
 ```
-sim: currency symbols, PDF/CDF views, three-way sensitivity tornado
+sim: read the schedule as a date, delete added percentiles, price a target pair
 
-Adds RiskSensitivity.delay_variance_share so the schedule tornado reads as a
-contribution rather than only a ranking, and bumps ENGINE_VERSION to 1.2.0 so a
-run that measured no delay share can be told from one that predates the field.
-No simulated number moves.
+Three things the simulation tab could not do.
 
-Frontend: money prints a currency symbol sourced once from config.CURRENCY
-(VITE_CURRENCY, default "$"); SCurve is replaced by DistributionChart, which
-draws the CDF, the density, or both on one axis with user-taggable percentiles;
-the tornado gains cost / schedule / both-together views behind one switch.
+1. Every schedule figure came back as a slip in elapsed days. A run now also renders
+   its finish series as a duration or as a calendar date, at any marked percentile.
+   Day zero comes from the schedule version, exposed as RunDetail.schedule_start_date
+   and resolved through the new sim_calendars.version_window(), which is now the single
+   owner of that anchor — the same function the calendar conversion counts from, so the
+   dates on the screen and the arithmetic behind them cannot drift onto two origins.
 
-Also adds the first frontend test runner - esbuild plus react-dom/server, no new
-dependencies - and fixes a pre-existing SVG <title> in the tornado that browsers
-rendered as raw markup.
+2. An added percentile marker vanished from the chip row when unmarked, which made
+   "hide this line" and "I mistyped 87" the same irreversible gesture. Added markers now
+   persist as chips and carry an explicit delete; presets are furniture and stay.
+
+3. The joint view could only price the pairs its frontiers happened to pass through,
+   which is never the pair a board has already fixed. JointConfidence now carries a grid:
+   P(delay <= D and cost <= C) counted over every iteration on a mesh at the marginal
+   quantiles of each axis. A target on a node is a count; one between nodes is bracketed,
+   because the joint CDF cannot dip between two nodes. The panel prints the bracket
+   whenever it is wider than half a point rather than quoting to a precision the mesh
+   does not have, and says what budget the target date would actually need.
+
+Engine 1.2.0 -> 1.3.0. No number moves; the request fingerprint is untouched, so every
+run recorded before this still verifies against its stored hash. A run made before the
+bump has no mesh and falls back to the thinned scatter, which is a genuine sample with
+genuine error and now says so in those words.
 ```
 
-## Apply
+## What changed
 
-1. Unpack the zip over the repo root.
-2. **The one deletion the zip cannot make:**
-   ```
-   git rm frontend/src/components/sim/SCurve.tsx
-   ```
-   `DistributionChart.tsx` replaces it. `SCurve` had exactly one caller
-   (`SimulationView`), which now uses the new component. ROI's `CurveOverlay` is a
-   different component and is untouched apart from its axis ticks.
-3. `cd frontend && npm test && npm run build`
-4. `cd backend && python -m pytest -q`
+| File | |
+| --- | --- |
+| `backend/app/sim/joint.py` | `JointGrid` model and `_grid()`; populated in `joint_confidence` |
+| `backend/app/sim/engine.py` | `ENGINE_VERSION` 1.2.0 → 1.3.0, with the reason next to the others |
+| `backend/app/sim/__init__.py` | re-export `JointGrid` |
+| `backend/app/services/sim_calendars.py` | `version_window()` extracted; `load_calendar_set` now calls it |
+| `backend/app/api/routes/simulations.py` | `RunDetail.schedule_start_date`, `day_zero()`, three call sites |
+| `backend/tests/sim/test_joint.py` | `TestGrid` — 7 tests, all against brute-force counts |
+| `backend/tests/test_simulations_api.py` | 4 tests for the calendar anchor |
+| `frontend/src/simulation-types.ts` | `JointGrid`, `JointConfidence.grid`, `RunDetail.schedule_start_date` |
+| `frontend/src/components/sim/format.ts` | `parseDay`, `dayToDate`, `dateToDay`, `toIsoDay`, `fmtDate`, `fmtCompactDate` |
+| `frontend/src/components/sim/DistributionChart.tsx` | date axis, `dayZero`/`dateOffsetDays`/`defaultAsDate`, deletable markers |
+| `frontend/src/components/sim/ScheduleDistribution.tsx` | **new** — slip vs finish switch |
+| `frontend/src/components/sim/JointTargets.tsx` | **new** — target-pair pricing |
+| `frontend/src/views/SimulationView.tsx` | wires both; the schedule prose moved into `ScheduleDistribution` |
+| `frontend/src/simulation.css` | `.sim-chip-group`, `.sim-chip-slot`, `.sim-chip-x`, `.sim-targets*` |
 
-## Files
+## Decisions — flag anything you want reverted
 
-**Backend**
-- `app/sim/sensitivity.py` — new `RiskSensitivity.delay_variance_share`
-- `app/sim/engine.py` — computes it; `ENGINE_VERSION` 1.1.0 → 1.2.0
-- `tests/sim/test_engine.py` — new `TestDelayVarianceShare`, four cases
+**Mesh size is 51 × 51, and it is a judgement call.** A node every two marginal
+percentiles bounds a mid-cell target to about four points of probability worst case and
+well under one in practice, for 17 KB on a 102 KB `result_json` — smaller than the
+scatter it sits beside. Doubling the mesh quarters the bound and quadruples the transport.
+One constant, `_GRID_NODES` in `joint.py`.
 
-**Frontend**
-- `src/config.ts` — new `CURRENCY`
-- `src/components/sim/format.ts` — currency symbol; new `fmtCompactMoney`, `fmtCompactUnits`
-- `src/components/sim/DistributionChart.tsx` — **new**, replaces `SCurve.tsx`
-- `src/components/sim/Tornado.tsx` — three metrics; `<title>` fix
-- `src/components/sim/JointScatter.tsx` — axis ticks carry their units
-- `src/components/roi/CurveOverlay.tsx` — same
-- `src/simulation-types.ts` — `delay_variance_share`
-- `src/views/SimulationView.tsx` — new chart, new `SensitivitySection`
-- `src/simulation.css` — chart, chip-input and readout styles
-- `test/run.mjs`, `test/sim-charts.test.tsx` — **new**
-- `package.json`, `tsconfig.json` — `test` script, `test` in `include`
+**`schedule_start_date` is resolved at read time, not stored on the run.** No migration.
+The schedule version is append-only so the answer cannot move, and a column would be a
+second copy of a fact that already has an owner. The cost is one small query per
+`GET /simulations/{id}`. If you would rather it were frozen onto the row at creation — so
+deleting a schedule version leaves the dates readable rather than nulling them — that is a
+migration and a different call, worth making deliberately rather than by default.
 
-## Verified
+**The engine version bumped even though no number moved.** Same reasoning as 1.1.0 and
+1.2.0: the bump is what lets the UI tell "this run has no mesh" from "this run measured
+nothing". Revertible by pinning it back, at the cost of the fallback message going wrong
+on old runs.
 
-Against a fresh `--depth 1` clone with the zip unpacked over it, using the repo's
-pinned dependencies (`requirements.txt` + `requirements-dev.txt`, `npm ci`):
+**Dates render in UTC, from a bare `YYYY-MM-DD`.** Nothing here is a moment in time.
+Parsing the anchor through the local zone puts every reader west of Greenwich a day early
+on every date the screen prints.
 
-- `pytest -q` — **917 passed, 3 skipped**. Well above the ~876 recorded in `ACTIVE.md`;
-  the doc has drifted again. `APPLY.md` on `main` also refers to a migration `0020`
-  while `ACTIVE.md` still says 0018.
-- `ruff check` / `ruff format --check` — clean on all four touched backend files. The
-  repo-wide run reports 3 pre-existing F401s and 80 unformatted files, none of them mine;
-  left alone.
-- `npm test` — 29 checks, all pass.
-- `tsc --noEmit --strict` — clean.
-- `vite build` — clean, 107 modules.
+**The date reading is offered on the finish series only.** A slip of forty days is not a
+date, and rendering it as one would be inventing an origin for it.
 
-## Design decisions — flagged, all revertible
+**Elapsed, not working days, and the caption says so.** A P80 finish landing on a Sunday
+is shown on the Sunday rather than moved to the Monday: the forward pass has no working
+calendar to move it onto, and quietly nudging the date would make the screen disagree with
+the number behind it.
 
-**1. The currency symbol is a constant, not a literal.** `format.ts` used to print no
-symbol at all, with a docstring explaining that the platform has no per-project currency
-field and inventing one would be the screen making something up. That reasoning was right
-about correctness and wrong about reading: a column of bare six-figure numbers beside a
-column of days is ambiguous on the page in a way it never is in someone's head, and every
-reviewer supplied the missing `$` mentally anyway. So it prints — but from
-`config.CURRENCY`, one read, overridable with `VITE_CURRENCY`. The day a project carries
-its own currency, that constant becomes the field's default and nothing else has to move.
-**To revert:** set `CURRENCY = ""`.
+## Verification
 
-Because `format.ts` is shared, this reaches the ROI and mitigation views too, which is
-intended.
+Run against a **fresh clone** with this zip unpacked over it, on the repo's pinned deps
+(`pip install -r requirements.txt -r requirements-dev.txt`, `npm ci`).
 
-**2. `delay_variance_share` is not renormalised to sum to one.** It is
-`cov(risk's sampled schedule impact, project delay) / var(delay)` — the same estimator as
-the cost side aimed at a different target. The shares fall short of one because delay is a
-maximum over network paths, not a sum of the risks driving it. The shortfall is the
-schedule's own duration uncertainty, and it is printed on the face of the chart: "the
-register explains 31% of the spread in the finish date". Normalising would have made the
-bars tidier and would have credited a three-risk register for a date an uncertain baseline
-mostly decided. Below 40% explained, the caption says outright that mitigating these risks
-will not move the finish much.
+- `python -m pytest -q` → **928 passed, 3 skipped**. Baseline on `main` @ `b049164` is
+  917 passed, 3 skipped — 11 new, nothing changed.
+- `ruff check .` → 3 errors, the same 3 that are already on `main`, none new
+- `ruff format --check .` → 98 would reformat, identical to `main`
+- `npx tsc --noEmit --strict` → clean
+- `npx vite build` → clean
 
-**Consequence:** a stakeholder used to schedule tornados that sum to 100% will ask about
-this. That is the intended conversation.
+The grid maths was checked on both sides of the wire. Python `_grid` is asserted against
+brute-force counts at nodes, for monotonicity on both axes, for the corners, for the
+marginals in the last row and column, and on a degenerate axis where every iteration
+finishes on the same day. The TypeScript reader was then run over a real 8000-iteration
+grid against fifteen brute-forced targets: **zero bracket misses**, **zero cases where the
+pair came out more likely than one of its own marginals**, worst interpolation error 1.3
+points, worst bracket 3.4 points, corners exact, monotone under a date sweep, and the
+"no budget reaches this" branch fires where it should.
 
-**3. Percentile markers are user-taggable rather than fixed.** P50/P80 open by default;
-P10/P50/P80/P90/P95 are one click, and any percentile can be typed. Contract regimes
-differ — P90 for a sanction case, P50 for an unbiased forecast, P95 where a lender is
-involved — and a screen hard-coding the analyst's own convention makes everyone else do
-arithmetic against a picture. Arbitrary percentiles are interpolated off the 101-point
-`s_curve`, which is the percentile function on a regular grid, so P73.5 works even though
-it was never in the run request.
+## Still open
 
-**4. Tagged values are read off a strip below the chart, not off the plot.** Eight labels
-on a 720-unit axis collide, and a label nudged clear of a collision points at the wrong
-place. Only a short `P80` tick stays on the plot.
+No marker is drawn on the scatter at the reader's own target. The panel and the picture
+sit beside each other without the picture knowing about the panel; a crosshair and a
+shaded box on `JointScatter` would close that, and it is a small change.
 
-**5. Density bars are a histogram, not a density.** Dividing by bin width would put the
-y-axis in the 1e-8 range on a cost chart. The bars show the share of iterations per bin
-and the caption says so, with the bin count and width, because the heights depend on the
-binning and that should not be something the reader has to discover.
-
-**6. Three sensitivity views behind one switch, not three stacked charts.** They answer
-the same question about different outcomes; side by side they get read as a ranking that
-disagrees with itself. Switching in place makes the disagreement the point — the top risk
-on the budget is routinely not the top risk on the date.
-
-**7. A frontend test runner, and not Vitest.** The largest call here and the most
-reversible. The repo has shipped a dozen deliveries verified only by `tsc --noEmit` and
-`vite build`, which prove components compile and prove nothing about what they draw.
-Vitest plus jsdom plus Testing Library is four devDependencies and a config file to run
-assertions against strings — and this codebase's entire charting layer is hand-rolled SVG
-whose output *is* a string. `react-dom/server` renders it and esbuild compiles the TSX;
-both are already installed, esbuild as Vite's own bundler. Zero new packages, two files,
-no config.
-
-What it deliberately cannot do: fire events, run effects, assert on layout. It covers
-first render of pure presentational components. The day something needs a click is the day
-the Vitest argument becomes worth having, and this file should lose rather than grow a
-synthetic event system.
-
-`tsconfig.json` now includes `test`, so a stale fixture breaks `npm run build` rather than
-rotting quietly. The bundle is emitted to `node_modules/.cache/` rather than the system
-temp directory, because `react` and `react-dom` are left external and Node resolves an
-external from where the bundle sits.
-
-**To revert:** delete `frontend/test/`, drop the `test` script, remove `"test"` from
-`include`.
-
-It earned its place immediately: it caught a **pre-existing** bug in `Tornado.tsx`, where
-each row's `<title>` was built from a child array. Browsers render only a single text node
-in an SVG `<title>`, so that tooltip has been showing raw markup to anyone who hovered a
-bar. `tsc` and `vite build` were both perfectly happy with it.
-
-## Not done — deliberately
-
-- **Report renderers still print bare numbers.** `services/report/` HTML and XLSX output
-  is unchanged, so it is now inconsistent with the screen. Out of scope for "simulation
-  tab"; wants doing next, and is small once `CURRENCY` has a backend counterpart.
-- **`gantt-util.fmtMoney`** handles minor units on its own path and is untouched.
-- **`risk_cost` and `schedule_driven_cost`** are returned by the engine and still charted
-  nowhere. `DistributionChart` would render either as-is.
+The frontend still has no test runner. The joint reading in `JointTargets.tsx` is the most
+maths-heavy thing yet put in a component, and it was verified by porting it verbatim into
+Node and running it against brute-forced truths — which proves the algorithm and proves
+nothing about the component that ships. That gap is now load-bearing rather than
+theoretical.

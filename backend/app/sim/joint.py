@@ -24,6 +24,20 @@ distribution itself and the frontier is a level set of it. Thinned for transport
 smoothed: the shape of the cloud carries the correlation, and with a burn rate in play its
 lower-left edge is a straight line of that slope, which is worth being able to see.
 
+**The grid.** The frontier answers "what pair is P80 together"; it does not answer "what is
+*my* target pair worth", which is the question anyone holding a board-imposed date and a
+board-imposed budget actually asks. That needs the joint CDF at an arbitrary point, and the
+scatter cannot supply it: a proportion read off 1200 thinned pairs carries about ±2.6 points
+of sampling error at 95%, which is the same size as the effect being measured.
+
+So the grid carries ``P(delay <= D and cost <= C)`` counted over *every* iteration, on a
+mesh whose nodes sit at the marginal quantiles of each axis. Reading a target that lands
+between nodes is bounded rather than guessed — the CDF is non-decreasing in both arguments,
+so the two surrounding nodes bracket the answer exactly, and the caller can print the
+bracket instead of implying a precision the mesh does not have. Nodes at quantiles rather
+than at even spacing puts the resolution where the mass is: an even mesh spends most of its
+nodes on a sparse right tail and leaves the body, where every target actually falls, coarse.
+
 Exact by construction, not fitted. No copula, no bivariate normal, no kernel — the sample
 *is* the joint distribution and reading a quantile off it costs one partition. Fitting a
 parametric joint to a sample we already hold would add an assumption to buy nothing.
@@ -42,6 +56,7 @@ from app.sim.sensitivity import rank_correlation_with
 __all__ = [
     "JointConfidence",
     "JointFrontier",
+    "JointGrid",
     "JointPoint",
     "joint_confidence",
 ]
@@ -57,6 +72,13 @@ _SCATTER_CAP = 1200
 #: Below this the joint reading is noise: a frontier at P95 needs at least a few hundred
 #: iterations above the threshold to place a quantile at all.
 _MIN_ITERATIONS = 200
+
+#: Nodes per axis on the joint CDF grid. Fifty-one puts a node every two marginal
+#: percentiles, which bounds the interpolation error at a target landing mid-cell to about
+#: four points of probability in the worst case and well under one in practice, for 2601
+#: integers of payload. Doubling the mesh quarters the bound and quadruples the transport;
+#: past this the bracket is narrower than the number is ever quoted to.
+_GRID_NODES = 51
 
 
 class JointPoint(BaseModel):
@@ -90,6 +112,27 @@ class JointFrontier(BaseModel):
     balanced: JointPoint | None = None
 
 
+class JointGrid(BaseModel):
+    """The joint CDF, counted over every iteration, sampled on a marginal-quantile mesh.
+
+    ``counts[i][j]`` is the number of iterations with ``delay <= delay_days[i]`` **and**
+    ``total_cost <= total_cost[j]``. Both node vectors ascend, ``counts`` is non-decreasing
+    along each axis, and the last row and column are the marginals — ``counts[-1][j]`` is
+    simply the count of iterations under cost node ``j``.
+
+    Counts rather than probabilities so a reader can divide by ``iterations`` and see what
+    the denominator was. A fraction rounded for transport hides how many iterations stand
+    behind it, and on a short run that is the thing most worth seeing.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    delay_days: tuple[float, ...]
+    total_cost: tuple[float, ...]
+    counts: tuple[tuple[int, ...], ...]
+    iterations: int
+
+
 class JointConfidence(BaseModel):
     """The joint cost-schedule picture: frontiers, the marginal trap, and the cloud."""
 
@@ -119,6 +162,12 @@ class JointConfidence(BaseModel):
     #: sampled: no generator, nothing to reproduce, and the rows are exchangeable anyway.
     scatter: tuple[tuple[float, float], ...] = ()
     scatter_stride: int = 1
+
+    #: The joint CDF over the *whole* sample, for reading an arbitrary target pair. The
+    #: scatter cannot do that job — see the module docstring. ``None`` only on a run made
+    #: before the grid existed, which a reader has to be told about rather than left to
+    #: read a thinned estimate believing it exact.
+    grid: JointGrid | None = None
 
 
 def _percentile_rank(sorted_values: NDArray[np.float64], x: float) -> float:
@@ -177,6 +226,39 @@ def _frontier(
     if points:
         balanced = min(points, key=lambda p: abs(p.cost_p - p.delay_p))
     return JointFrontier(target=target, points=tuple(points), balanced=balanced)
+
+
+def _grid(
+    delay: NDArray[np.float64], cost: NDArray[np.float64], nodes: int = _GRID_NODES
+) -> JointGrid:
+    """Count the joint CDF onto a mesh of marginal quantiles.
+
+    ``searchsorted(nodes, v, side="left")`` gives the index of the first node at or above
+    ``v``, so an iteration lands in cell ``(i, j)`` exactly when ``i`` is the first delay
+    node that covers it and ``j`` the first cost node. A two-dimensional cumulative sum of
+    those cell counts is then the joint CDF at every node, with no interpolation anywhere
+    in the construction: ``counts[i][j]`` is a count of iterations, not an estimate of one.
+
+    ``bincount`` on a flattened index rather than ``np.add.at``, which is an unbuffered
+    scatter and runs an order of magnitude slower on the hundred-thousand-iteration runs
+    this has to stay cheap on.
+    """
+    n = delay.size
+    qs = np.linspace(0.0, 1.0, nodes)
+    dn = np.quantile(delay, qs)
+    cn = np.quantile(cost, qs)
+
+    di = np.searchsorted(dn, delay, side="left")
+    cj = np.searchsorted(cn, cost, side="left")
+    flat = np.bincount(di * nodes + cj, minlength=nodes * nodes)
+    cum = flat.reshape(nodes, nodes).cumsum(axis=0).cumsum(axis=1)
+
+    return JointGrid(
+        delay_days=tuple(float(v) for v in dn),
+        total_cost=tuple(float(v) for v in cn),
+        counts=tuple(tuple(int(v) for v in row) for row in cum),
+        iterations=int(n),
+    )
 
 
 def joint_confidence(
@@ -243,4 +325,5 @@ def joint_confidence(
         burn_rate_coupled=burn_rate_coupled,
         scatter=scatter,
         scatter_stride=stride,
+        grid=_grid(d, c),
     )

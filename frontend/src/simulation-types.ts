@@ -213,6 +213,20 @@ export interface JointFrontier {
   balanced?: JointPoint | null;
 }
 
+export interface JointGrid {
+  /** Ascending delay nodes, at the marginal quantiles of the delay distribution. */
+  delay_days: number[];
+  /** Ascending cost nodes, at the marginal quantiles of the total-cost distribution. */
+  total_cost: number[];
+  /**
+   * `counts[i][j]` is the number of iterations with `delay <= delay_days[i]` **and**
+   * `total_cost <= total_cost[j]`. Non-decreasing along both axes, so a target landing
+   * between nodes is bracketed by the two surrounding cells rather than guessed at.
+   */
+  counts: number[][];
+  iterations: number;
+}
+
 export interface JointConfidence {
   iterations: number;
   frontiers: JointFrontier[];
@@ -227,6 +241,12 @@ export interface JointConfidence {
   /** `[delay_days, total_cost]` per retained iteration, thinned by a fixed stride. */
   scatter: [number, number][];
   scatter_stride: number;
+  /**
+   * The joint CDF counted over every iteration, for pricing a target pair the frontier
+   * does not happen to pass through. Absent on a run made before engine 1.3.0, which has
+   * to be answered off the thinned scatter and told so.
+   */
+  grid?: JointGrid | null;
 }
 
 export interface CorrelationReport {
@@ -293,5 +313,12 @@ export interface RunDetail extends RunSummary {
   gate_override_reason: string | null;
   excluded: ExcludedRisk[];
   assembly_notes: string[];
+  /**
+   * Day zero of the simulated network as `YYYY-MM-DD` — the date every `finish_day` in
+   * the result is an offset from. Null on a cost-only run, and on a run whose schedule
+   * version has since been deleted; the day numbers stay exact either way, only their
+   * calendar rendering goes away.
+   */
+  schedule_start_date: string | null;
   result: SimulationResult | null;
 }

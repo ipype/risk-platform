@@ -21,7 +21,7 @@ from app.models.schedule import ScheduleActivity, ScheduleCalendar, ScheduleVers
 from app.schedule.calendars import CalendarDensity, describe
 from app.schedule.model import WorkCalendar
 
-__all__ = ["CalendarSet", "load_calendar_set"]
+__all__ = ["CalendarSet", "load_calendar_set", "version_window"]
 
 
 def _as_date(value: datetime | date | None) -> date | None:
@@ -112,13 +112,21 @@ class CalendarSet:
         return self.fastest.factor / self.slowest.factor
 
 
-async def load_calendar_set(db: AsyncSession, version_id: int) -> CalendarSet:
-    """Every calendar for a version, measured over the dates that version occupies.
+async def version_window(
+    db: AsyncSession, version_id: int
+) -> tuple[date | None, date | None]:
+    """The calendar span a version occupies: data date to latest early finish.
 
-    The window runs from the data date (or the earliest activity start) to the latest
-    early finish. Falling back to activity dates rather than requiring a data date keeps
-    a schedule that parsed without one usable, at the cost of a window that starts
-    wherever the work does.
+    Its own function because the start of this window is *day zero* for everything the
+    engine returns. Activity durations reach the engine as elapsed days from here, the
+    forward pass counts from here, and a simulated finish day is only a calendar date
+    because this is the date it is added to. Two places computing that anchor with two
+    slightly different fallbacks would put the run's dates and the run's arithmetic on
+    different origins, and nothing downstream would show it.
+
+    Falling back to the earliest activity start rather than requiring a data date keeps a
+    schedule that parsed without one usable, at the cost of a window that starts wherever
+    the work does — which is why the caller is told which of the two it got.
     """
     version = await db.get(ScheduleVersion, version_id)
 
@@ -133,6 +141,16 @@ async def load_calendar_set(db: AsyncSession, version_id: int) -> CalendarSet:
 
     start = _as_date(version.data_date if version else None) or _as_date(bounds[0])
     end = _as_date(bounds[1]) or _as_date(version.baseline_finish if version else None)
+    return start, end
+
+
+async def load_calendar_set(db: AsyncSession, version_id: int) -> CalendarSet:
+    """Every calendar for a version, measured over the dates that version occupies.
+
+    The window comes from :func:`version_window`, which is also what dates every
+    simulated finish day off — see there for why the anchor has exactly one owner.
+    """
+    start, end = await version_window(db, version_id)
 
     rows = (
         await db.scalars(

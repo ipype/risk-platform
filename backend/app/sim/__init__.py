@@ -41,7 +41,13 @@ from app.sim.inputs import (
     ScheduleInput,
     SimulationRequest,
 )
-from app.sim.joint import JointConfidence, JointFrontier, JointPoint, joint_confidence
+from app.sim.joint import (
+    JointConfidence,
+    JointFrontier,
+    JointGrid,
+    JointPoint,
+    joint_confidence,
+)
 from app.sim.network import CompiledNetwork
 from app.sim.results import (
     ContingencyView,
@@ -66,6 +72,7 @@ __all__ = [
     "DriverSpec",
     "JointConfidence",
     "JointFrontier",
+    "JointGrid",
     "JointPoint",
     "NetworkCycle",
     "Outcome",

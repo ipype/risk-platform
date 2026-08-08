@@ -75,7 +75,13 @@ __all__ = ["ENGINE_VERSION", "SimulationResult", "RunArrays", "Outcome", "run"]
 #: schedule tornado can be read as a contribution rather than only as a ranking, and the
 #: bump is what lets the UI tell a run that measured no delay share from one that predates
 #: the field — the difference between "this risk drives nothing" and "nobody asked".
-ENGINE_VERSION = "1.2.0"
+#:
+#: 1.3.0 moves no number either. It adds ``JointConfidence.grid``, the joint CDF counted
+#: over every iteration on a marginal-quantile mesh, so a reader can price *their own*
+#: target date and target budget instead of only the pairs the frontier happens to pass
+#: through. The bump is what lets the UI tell a run that carries the mesh from one made
+#: before it, which has to fall back to the thinned scatter and say so.
+ENGINE_VERSION = "1.3.0"
 
 #: Below this many expected occurrences a risk's own tail is too thinly sampled to read.
 _THIN_TAIL_OCCURRENCES = 30
