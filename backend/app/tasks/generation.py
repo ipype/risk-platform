@@ -6,10 +6,13 @@ of one pass; the engine is built inside that loop and disposed at the end rather
 shared from ``app.db.session``, because a worker process is forked and an asyncpg pool
 inherited across a fork carries sockets belonging to the parent.
 
+The task is kind-agnostic: ``generation_execute.execute`` reads the run's ``kind`` and
+picks the generator, so a new stage ships a service and a route and never a second task.
+
 The recovery write below exists for one symptom: a run sitting in ``queued`` forever with
 nothing against it. ``task_acks_late`` acknowledges a task that raised exactly as it
-acknowledges one that returned, so a task dying before ``risk_generate.execute`` claims the
-row leaves no message on the broker and no trace in the database. For a generation that is
+acknowledges one that returned, so a task dying before the executor claims the row leaves
+no message on the broker and no trace in the database. For a generation that is
 worse than for a simulation, because the calls it may already have made cost money and
 nothing would record that they happened.
 """
@@ -22,7 +25,7 @@ import logging
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
-from app.services.risk_generate import execute, record_failure
+from app.services.generation_execute import execute, record_failure
 from app.worker import celery_app
 
 logger = logging.getLogger(__name__)

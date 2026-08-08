@@ -27,9 +27,16 @@ becoming a version of the ranking too.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Sequence
 
+from app.agents._parsing import (
+    MAX_FIELD_CHARS,
+    MAX_REFS,
+    clean_text,
+    confidence,
+    decode,
+    partition_refs,
+)
 from app.agents.types import (
     INCOMPLETE,
     NOT_AN_ARRAY,
@@ -45,6 +52,7 @@ from app.agents.types import (
 
 __all__ = [
     "PROMPT_VERSION",
+    "CLOSING_LINE",
     "SYSTEM_PROMPT",
     "MAX_TITLE_CHARS",
     "build_messages",
@@ -60,18 +68,20 @@ __all__ = [
 #: because a version number alone stops being informative around the fourth revision.
 PROMPT_VERSION = "risk-id/v1/2026-08-08"
 
+#: The last line of the user turn. A real part of the contract rather than a flourish:
+#: this stage asks for an array and qualitative evaluation asks for an object, and
+#: ``llm/fake.py`` dispatches on the difference so its answers stay a function of the
+#: actual prompt. A test asserts the two renderers still disagree here.
+CLOSING_LINE = "Return the JSON array now."
+
 #: ``Risk.title`` is ``String(300)``. Clipped rather than dropped: an over-long title is a
 #: style failure, and refusing a well-evidenced risk over one is the wrong trade.
 MAX_TITLE_CHARS = 300
 
-#: Guards against a model answering with an essay in one field. Well above anything a
-#: sensible answer needs, low enough that a runaway generation cannot write a novel into
-#: ``proposed_value``.
-MAX_FIELD_CHARS = 2000
-
-#: Cap on citations kept per candidate. A candidate citing eleven chunks is not better
-#: evidenced than one citing three; it is a model listing the window back.
-MAX_REFS = 5
+#: ``MAX_FIELD_CHARS`` and ``MAX_REFS`` live in ``agents/_parsing.py`` and are re-exported
+#: here because they were named here first and this module's tests address them by this
+#: name. They are shared with every other generator rather than copied, which is the point
+#: of the move: a guard that exists twice is a guard that gets fixed once.
 
 
 SYSTEM_PROMPT = """\
@@ -233,7 +243,7 @@ def build_messages(
         f"{render_taxonomy(taxonomy)}\n\n"
         "Extracts to read:\n\n"
         f"{render_window(window)}\n\n"
-        "Return the JSON array now."
+        f"{CLOSING_LINE}"
     )
 
 
@@ -344,32 +354,14 @@ def parse(
 def _decode(raw: str) -> tuple[object, Drop | None]:
     """JSON out of whatever the model actually sent.
 
-    Tries the whole string first, then the widest ``[...]`` span in it. The second pass is
-    not politeness towards a sloppy model: a system prompt that forbids prose is followed
-    almost always and not always, and one apologetic sentence should not cost a window.
-    Anything beyond that — repairing truncated JSON, closing brackets — is declined on
-    purpose: a repaired array is one whose contents nobody can attest to.
+    The shared decoder in ``agents/_parsing.py`` does the work; this adds the identification
+    stage's own drop reason, because the caller needs a :class:`Drop` and the decoder is
+    used by generators whose failure vocabulary differs.
     """
+    payload = decode(raw, opener="[", closer="]")
+    if payload is not None:
+        return payload, None
     text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-        text = text.strip()
-
-    try:
-        return json.loads(text), None
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    start = text.find("[")
-    end = text.rfind("]")
-    if start != -1 and end > start:
-        try:
-            return json.loads(text[start : end + 1]), None
-        except (json.JSONDecodeError, ValueError):
-            pass
-
     return None, Drop(
         UNPARSEABLE,
         "No JSON array could be read from the response"
@@ -378,12 +370,10 @@ def _decode(raw: str) -> tuple[object, Drop | None]:
 
 
 def _text(value: object) -> str:
-    return " ".join(str(value).split())[:MAX_FIELD_CHARS] if isinstance(value, str) else ""
+    return clean_text(value, limit=MAX_FIELD_CHARS)
 
 
-def _refs(
-    value: object, allowed: frozenset[str]
-) -> tuple[tuple[str, ...], list[str]]:
+def _refs(value: object, allowed: frozenset[str]) -> tuple[tuple[str, ...], list[str]]:
     """Citations that were in the pack, and the ones that were not.
 
     Both halves are returned. The invented ones do not become evidence, and they do go in
@@ -391,30 +381,8 @@ def _refs(
     tells an operator their prompt or their model has a problem, and without it the run
     reports only that something was refused.
     """
-    if not isinstance(value, list):
-        return (), []
-    kept: list[str] = []
-    invented: list[str] = []
-    for item in value:
-        ref = item.strip() if isinstance(item, str) else ""
-        if not ref:
-            continue
-        if ref in allowed:
-            if ref not in kept:
-                kept.append(ref)
-        elif ref not in invented:
-            invented.append(ref)
-    return tuple(kept[:MAX_REFS]), invented[:MAX_REFS]
+    return partition_refs(value, allowed, limit=MAX_REFS)
 
 
 def _confidence(value: object) -> float | None:
-    """A number in 0..1, or nothing.
-
-    ``bool`` is excluded explicitly because it is an ``int`` in Python and ``True`` would
-    otherwise become a confidence of 1.0 — a model writing ``"confidence": true`` would
-    become the most confident row in the inbox.
-    """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    return number if 0.0 <= number <= 1.0 else None
+    return confidence(value)

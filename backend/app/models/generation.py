@@ -48,10 +48,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
 
-#: The only generator in 5.4. A string rather than an enum column for the same reason
-#: ``proposal.target_type`` is one: the set grows once per P5 stage, and a CHECK here
-#: would mean a migration every time a generator ships.
+#: A string rather than an enum column for the same reason ``proposal.target_type`` is
+#: one: the set grows once per P5 stage, and a CHECK here would mean a migration every
+#: time a generator ships.
 RISK_IDENTIFICATION = "risk_identification"
+
+#: Scoring risks already on the register against the active matrix. Query-shaped where
+#: identification is sweep-shaped, which is why the two read different columns below.
+QUALITATIVE_EVALUATION = "qualitative_evaluation"
+
+KINDS: tuple[str, ...] = (RISK_IDENTIFICATION, QUALITATIVE_EVALUATION)
 
 QUEUED = "queued"
 RUNNING = "running"
@@ -104,8 +110,21 @@ class GenerationRun(Base):
     # -- what it read --------------------------------------------------------------
     #: Document ids in the pack. A list rather than a join table: it is written once,
     #: read whole, and never queried across runs. A join table would be three more
-    #: objects for a question nobody asks.
+    #: objects for a question nobody asks. NULL for a query-shaped generator, which reads
+    #: whatever retrieval returns rather than a corpus it chose in advance.
     document_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    #: The domain rows a *query-shaped* pass was about — risk ids, for qualitative
+    #: evaluation. Deliberately named for subjects rather than for risks: the next two
+    #: query-shaped generators (quantitative elicitation, risk-to-activity mapping) are
+    #: also per-row, and a third column called ``estimate_ids`` would be the point at
+    #: which this table started growing one column per generator.
+    subject_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    #: How much material was read. For a sweep that is corpus chunks and packs; for a
+    #: query-shaped pass ``chunk_count`` is evidence items retrieved and ``window_count``
+    #: is model calls made — one per subject. Two meanings for one column is a cost worth
+    #: naming; the alternative was four more columns to express the same two numbers.
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     window_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     #: The corpus had more windows than the cap allowed. On the face of the run, because
@@ -130,6 +149,13 @@ class GenerationRun(Base):
     #: Per-window: prompt fingerprint, the raw response, usage, parse outcome.
     transcript: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    #: ``[{subject, reason, detail}]`` — subjects the pass declined to spend a call on.
+    #: Kept apart from ``dropped`` because the two answer different questions: a drop says
+    #: the model was asked and its answer was refused, a skip says it was never asked. A
+    #: pass that skipped thirty risks for want of evidence and one that asked about thirty
+    #: and refused every answer produce the same proposal count and mean opposite things.
+    skipped: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -148,6 +174,11 @@ class GenerationRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    @property
+    def skipped_count(self) -> int:
+        """How many subjects were never asked about. Zero for a sweep."""
+        return len(self.skipped or ())
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<GenerationRun {self.id} {self.kind} {self.status}>"
@@ -168,6 +199,10 @@ class GenerationRunSummary(BaseModel):
     windows_truncated: bool
     candidate_count: int
     proposal_count: int
+    #: On the summary and not only the detail. "Nothing was proposed" and "nothing was
+    #: proposed because there was nothing to go on" are different results, and a list view
+    #: that shows only the first invites the wrong conclusion about the second.
+    skipped_count: int
     error: str | None
     requested_by: str
     created_at: datetime
@@ -180,8 +215,10 @@ class GenerationRunSummary(BaseModel):
 class GenerationRunDetail(GenerationRunSummary):
     temperature: float
     document_ids: list[int] | None
+    subject_ids: list[int] | None
     pack_sha256: str | None
     dropped: list[dict] | None
+    skipped: list[dict] | None
     transcript: list[dict] | None
     input_tokens: int | None
     output_tokens: int | None

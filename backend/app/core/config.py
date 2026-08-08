@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     #: audit answer to "what did the model actually say"; the cap is what stops a
     #: pathological response putting a megabyte in a JSON column.
     generation_transcript_chars: int = 20_000
+    #: Ceiling on subjects per query-shaped run — one model call each. A four-hundred-risk
+    #: register is four hundred paid calls, and the run reports the subjects it never
+    #: reached rather than pretending it scored everything.
+    generation_max_subjects: int = 40
+    #: Evidence items retrieved per subject. Small on purpose: a model shown twenty
+    #: extracts scores against the two it can hold, and the other eighteen are paid
+    #: context that dilutes attention. This is the number to raise when retrieval gets
+    #: better at ordering, not before.
+    generation_evidence_limit: int = 8
 
     @property
     def cors_origins(self) -> list[str]:

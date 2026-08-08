@@ -45,7 +45,7 @@ def live_workers(timeout: float) -> list[str] | None:
 async def dispatch(db: AsyncSession, run: GenerationRun) -> GenerationRun:
     """Start the pass. Never raises: a run that cannot be queued is a failed run."""
     if settings.generation_eager:
-        from app.services.risk_generate import execute
+        from app.services.generation_execute import execute
 
         result = await execute(db, run.id)
         return result or run

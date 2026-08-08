@@ -13,6 +13,6 @@ a session to exercise, they stop being properties anyone verifies and become beh
 people hope for.
 """
 
-from app.agents import dedupe, risk_id, types
+from app.agents import dedupe, qual_eval, risk_id, types
 
-__all__ = ["dedupe", "risk_id", "types"]
+__all__ = ["dedupe", "qual_eval", "risk_id", "types"]

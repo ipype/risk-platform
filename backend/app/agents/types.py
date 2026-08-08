@@ -16,22 +16,37 @@ eleven candidates were offered and four were refused before anyone reads the sev
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 __all__ = [
+    "Assessment",
     "Candidate",
     "Drop",
+    "EvidenceItem",
+    "ImpactArea",
+    "Level",
     "PackChunk",
+    "RiskSubject",
+    "Scale",
+    "Skip",
     "TaxonomyEntry",
     "Window",
     "DROP_REASONS",
+    "SKIP_REASONS",
     "UNPARSEABLE",
     "NOT_AN_ARRAY",
+    "NOT_AN_OBJECT",
     "INCOMPLETE",
     "UNGROUNDED",
     "UNKNOWN_CATEGORY",
+    "UNKNOWN_AREA",
+    "OUT_OF_RANGE",
+    "NOTHING_TO_SCORE",
     "DUPLICATE_IN_BATCH",
     "ALREADY_IN_REGISTER",
+    "NO_EVIDENCE",
+    "ALREADY_ASSESSED",
+    "SUBJECT_LIMIT",
 ]
 
 #: The response was not JSON, or not JSON we could find inside the prose.
@@ -57,15 +72,52 @@ DUPLICATE_IN_BATCH = "duplicate_in_batch"
 #: ``agents/dedupe.py`` for why the threshold is asymmetric.
 ALREADY_IN_REGISTER = "already_in_register"
 
+#: Valid JSON of the wrong shape where a single object was asked for.
+NOT_AN_OBJECT = "not_an_object"
+
+#: A level outside the scale this install actually configures — a 6 on a five-point
+#: probability scale, or a 0. Never clamped into range: a model that answered off the
+#: scale has misread the scale, and clamping turns that into a score somebody signs.
+OUT_OF_RANGE = "out_of_range"
+
+#: An impact area code that is not in the active matrix configuration.
+UNKNOWN_AREA = "unknown_area"
+
+#: The answer parsed and named neither a probability nor a single impact area. A correct
+#: and useful outcome — the model was asked to omit rather than guess — and a drop rather
+#: than a proposal, because there is nothing to propose.
+NOTHING_TO_SCORE = "nothing_to_score"
+
 DROP_REASONS: tuple[str, ...] = (
     UNPARSEABLE,
     NOT_AN_ARRAY,
+    NOT_AN_OBJECT,
     INCOMPLETE,
     UNGROUNDED,
     UNKNOWN_CATEGORY,
+    UNKNOWN_AREA,
+    OUT_OF_RANGE,
+    NOTHING_TO_SCORE,
     DUPLICATE_IN_BATCH,
     ALREADY_IN_REGISTER,
 )
+
+#: Why a pass declined to spend a call on a subject at all. Kept apart from
+#: :data:`DROP_REASONS` because the two answer different questions: a drop says the model
+#: was asked and its answer was refused, a skip says it was never asked. "Nine skipped for
+#: want of evidence" and "nine answered off the scale" are different problems with
+#: different fixes, and one list holding both would let each hide inside the other.
+NO_EVIDENCE = "no_evidence"
+
+#: A human has already scored this. Not re-suggested by default: proposing against a
+#: judgement made in a workshop is the generator arguing with the people who were in the
+#: room, and that is a thing to ask for deliberately rather than to get by default.
+ALREADY_ASSESSED = "already_assessed"
+
+#: The pass hit its per-run subject cap before reaching this one.
+SUBJECT_LIMIT = "subject_limit"
+
+SKIP_REASONS: tuple[str, ...] = (NO_EVIDENCE, ALREADY_ASSESSED, SUBJECT_LIMIT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,3 +210,136 @@ class Drop:
 
     def as_dict(self) -> dict:
         return {"reason": self.reason, "detail": self.detail, "raw": self.raw}
+
+
+# --------------------------------------------------------------------------------------
+# qualitative evaluation
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Level:
+    """One rung of a scale: the number that gets stored and the words beside it."""
+
+    level: int
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImpactArea:
+    """One dimension the register scores, with this install's descriptors.
+
+    ``descriptors`` maps a level to what that level *means here* — "$250k – $1M", "lost-time
+    injury". Sent to the model in full, because a five-point cost scale means different
+    money on a €40M water main and a €4B rail programme, and a model scoring against an
+    imagined scale produces numbers that look identical to ones scored against the real one.
+    """
+
+    code: str
+    name: str
+    descriptors: dict[int, str]
+
+
+@dataclass(frozen=True, slots=True)
+class Scale:
+    """The active matrix configuration, as the model is allowed to see it.
+
+    Read from ``matrix_config`` rather than written here. The platform already treats the
+    scale as configuration and not code — a client on a 4×4 with their own cost bands is a
+    supported install, not a special case — and a scoring prompt carrying a hard-coded 5×5
+    would be the one place that stopped being true, silently, in a way whose only symptom
+    is scores that are wrong by a constant.
+    """
+
+    probability: tuple[Level, ...]
+    impact: tuple[Level, ...]
+    areas: tuple[ImpactArea, ...]
+
+    @property
+    def probability_levels(self) -> frozenset[int]:
+        return frozenset(level.level for level in self.probability)
+
+    @property
+    def impact_levels(self) -> frozenset[int]:
+        return frozenset(level.level for level in self.impact)
+
+    @property
+    def area_codes(self) -> frozenset[str]:
+        return frozenset(area.code for area in self.areas)
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceItem:
+    """One retrieved thing, as the model sees it and as a proposal will cite it.
+
+    ``assessed`` carries what a comparable risk was actually scored, and is the whole
+    reason the register is searched at all. It is a string rather than numbers because the
+    model is being shown a precedent to weigh, not a value to copy, and a bare integer in
+    a prompt is copied far more readily than a sentence saying who scored it and where.
+    """
+
+    kind: str
+    ref: str
+    excerpt: str
+    label: str
+    from_other_scope: bool = False
+    assessed: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RiskSubject:
+    """One register row a qualitative evaluation pass is about.
+
+    ``scored_impacts`` holds what a human has already judged. Carried through rather than
+    hidden, for two reasons: the model should not be asked to re-score an area somebody has
+    already ruled on, and the proposal that lands has to contain those values or accepting
+    it would erase them — ``impact_scores`` is one JSON column and the applier sets it
+    whole.
+    """
+
+    risk_id: int
+    risk_code: str
+    title: str
+    statement: str
+    category: str
+    scored_probability: int | None = None
+    scored_impacts: dict[str, int] = field(default_factory=dict)
+
+    def query(self) -> str:
+        """What to retrieve evidence with. Title and statement, nothing else."""
+        return " ".join(part for part in (self.title, self.statement) if part)
+
+
+@dataclass(frozen=True, slots=True)
+class Assessment:
+    """A parsed qualitative evaluation. Not yet a proposal, and never a score.
+
+    Two confidences and not one. A model can have a firm view on how bad a thing would be
+    and no view at all on how likely it is — that is the ordinary case for a hazard whose
+    consequence is documented and whose frequency is not — and a single number would force
+    it to average the two into something that describes neither.
+    """
+
+    probability: int | None
+    probability_rationale: str
+    impacts: dict[str, int]
+    impact_rationales: dict[str, str]
+    evidence_refs: tuple[str, ...]
+    probability_confidence: float | None = None
+    impact_confidence: float | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.probability is None and not self.impacts
+
+
+@dataclass(frozen=True, slots=True)
+class Skip:
+    """A subject the pass declined to spend a call on, and why."""
+
+    subject: str
+    reason: str
+    detail: str
+
+    def as_dict(self) -> dict:
+        return {"subject": self.subject, "reason": self.reason, "detail": self.detail}
