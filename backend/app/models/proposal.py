@@ -161,6 +161,26 @@ class Proposal(Base):
         ForeignKey("proposal.id", ondelete="RESTRICT"), nullable=True
     )
 
+    #: The row a *creation* proposal produced, set by the applier when it materialises.
+    #: ``target_id`` is deliberately left NULL rather than back-filled with this: the two
+    #: mean different things — "the row this is about" and "the row this made" — and
+    #: overloading the first would make "was this a creation?" unanswerable from the row
+    #: the moment it was accepted, which is the moment the question starts being asked.
+    created_target_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: Which generation pass raised this, when one did. NULL for a proposal raised by
+    #: hand through ``POST /proposals``.
+    #:
+    #: No foreign key, and not an oversight. SQLite cannot add a constraint to an existing
+    #: table, so an FK here would mean ``batch_alter_table`` rebuilding ``proposal`` —
+    #: which would drop and require re-declaring the partial unique index and both CHECK
+    #: constraints, the three things on this table it would be worst to get subtly wrong.
+    #: Generation runs are append-only and never deleted, so the integrity an FK would
+    #: buy is already a property of the other table.
+    generation_run_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, index=True
+    )
+
     disposed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     disposed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -238,6 +258,8 @@ class ProposalRead(BaseModel):
     parked: bool
     applied_value: Any
     superseded_by: int | None
+    created_target_id: int | None
+    generation_run_id: int | None
     disposed_by: str | None
     disposed_at: datetime | None
     disposition_note: str | None

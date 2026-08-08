@@ -2,6 +2,7 @@
 from app.db.base_class import Base  # noqa: F401
 from app.models.custom_fields import CustomFieldConfig  # noqa: F401
 from app.models.document import Document, DocumentChunk  # noqa: F401
+from app.models.generation import GenerationRun  # noqa: F401
 from app.models.history import RiskHistory  # noqa: F401
 from app.models.matrix import MatrixConfig  # noqa: F401
 from app.models.mitigation import (  # noqa: F401

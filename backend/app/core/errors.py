@@ -298,6 +298,57 @@ class DocumentHasNoText(DocumentError):
         super().__init__(f"{filename} yielded no text. {reason}")
 
 
+class LlmError(RiskPlatformError):
+    """Base class for failures at the model seam."""
+
+
+class LlmNotConfigured(LlmError):
+    """No provider, no key, or no model — nothing was attempted.
+
+    Distinct from :class:`LlmCallFailed` in the same way ``UnsupportedScheduleFormat`` is
+    distinct from ``MalformedScheduleFile``: this one is a deployment that has not been
+    told what to use, and the fix is a setting rather than a retry. Raised before a
+    generation run is created wherever possible, so a misconfigured install does not leave
+    a trail of failed runs explaining the same missing environment variable.
+    """
+
+
+class LlmCallFailed(LlmError):
+    """The provider was reached, or reachable, and the call did not produce text.
+
+    Carries the provider name and the HTTP status when there was one, because "the key is
+    wrong" (401), "the model string is wrong" (404) and "we are being rate limited" (429)
+    are three different actions and one message that says only "the call failed" sends an
+    operator to read logs for all three.
+    """
+
+    def __init__(
+        self, provider: str, reason: str, *, status_code: int | None = None
+    ) -> None:
+        self.provider = provider
+        self.reason = reason
+        self.status_code = status_code
+        super().__init__(f"The {provider} call failed. {reason}")
+
+
+class GenerationError(RiskPlatformError):
+    """Base class for generation-run failures."""
+
+
+class GenerationNotRunnable(GenerationError):
+    """There is nothing for a generator to read, or nothing for it to write with.
+
+    An empty corpus, a scope with no documents, an RBS with no subcategories. Every one of
+    these is something a person can go and fix, and each is refused before a model is
+    called rather than after — a run that spends money to discover the corpus was empty is
+    a run that should not have been dispatched.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 class EvidenceRefUnresolvable(RiskPlatformError):
     """A stored evidence reference does not point at anything readable.
 

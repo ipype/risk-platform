@@ -38,7 +38,7 @@ celery_app = Celery(
     "risk_platform",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.simulation"],
+    include=["app.tasks.simulation", "app.tasks.generation"],
 )
 
 celery_app.conf.update(

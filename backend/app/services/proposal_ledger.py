@@ -53,6 +53,7 @@ async def propose(
     generator_prompt_version: str,
     confidence: float | None = None,
     observed_value: object = None,
+    generation_run_id: int | None = None,
 ) -> Proposal:
     """Record a suggestion. Supersedes any pending one for the same target field.
 
@@ -65,6 +66,13 @@ async def propose(
     ``evidence_refs`` is not validated for shape here. The database enforces that there is
     at least one, and the Pydantic boundary enforces the rest; re-checking in the middle
     would put a third copy of the rule somewhere nobody thinks to update.
+
+    **Creation proposals are not superseded.** ``target_id IS NULL`` means there is no
+    field for two of them to collide on, so the query above is skipped and a second pass
+    over the same corpus would double the inbox — which is exactly why the generator, not
+    the ledger, is where deduplication lives. The ledger cannot tell that two draft risks
+    written in different words are the same risk; the generator can, and it says so on the
+    run rather than silently.
     """
     priors: list[Proposal] = []
     if target_id is not None:
@@ -105,6 +113,7 @@ async def propose(
         generator_prompt_version=generator_prompt_version,
         status=PENDING,
         parked=False,
+        generation_run_id=generation_run_id,
     )
     db.add(row)
     await db.flush()

@@ -1,117 +1,203 @@
-# APPLY — P5 5.3 Evidence Service
+# 5.4 — First AI suggestion generator (risk identification)
 
-## Prerequisites
-
-**Apply 5.1 and 5.2 first, in that order.** This zip's copies of `app/core/errors.py`,
-`app/api/errors.py` and `app/main.py` carry all three deliveries' edits; unpacking over a
-tree missing either earlier one leaves them importing modules that are not there.
-
-**No migration.** 5.3 is read-only over what 5.1 and 5.2 built. Schema head stays at 0022.
+Folder-swap. Unpack over the repo root, paths intact. **Delete this file before committing.**
 
 ## Commit message
 
 ```
-feat: evidence service, the one retrieval interface every generator calls
+feat: risk identification generator, LLM provider seam, creation proposals
 
-BM25 over three substrates: the document corpus, the register as a reference
-class, and schedule activity names. app/retrieval/ is pure and takes tokens
-rather than text, so the tokenizer stays in services/ with its lexicon and the
-risk-to-activity suggester and this share one vocabulary.
+Adds the first generator in P5: a sweep over a project's document corpus that
+drafts cause-event-effect risk statements and raises each as a creation proposal
+in the ledger. Nothing generated reaches the register without a human
+disposition.
 
-Abstention is on term overlap, not on a score floor. BM25 scores are unbounded
-and corpus-relative, so an absolute threshold means one thing over forty chunks
-and something else over four thousand; a hit must instead match query terms
-carrying a real share of the query's IDF mass. A term present in every candidate
-is worth nothing at all.
+- app/llm/: provider seam (types, fake, anthropic over httpx, registry).
+  LLM_PROVIDER and LLM_MODEL both default to empty and refuse.
+- app/agents/: pure. Prompt construction, grounded parsing, deduplication.
+  No DB, no network, no clock — same boundary as app/sim/ and app/ingest/.
+- services/risk_generate.py: orchestration. Corpus -> windows -> call -> parse
+  -> dedupe -> proposal_ledger.propose.
+- proposal_apply.py: creation registry and the risk creator, materialising the
+  creation proposals 5.1 deliberately left unapplied.
+- generation_run table and two proposal columns (migration 0023).
+- POST /generation/risk-identification, GET /generation/runs[/{id}[/proposals]].
 
-Every hit reports which query terms caused it. Every search reports what it
-searched and how large each corpus was, so "no evidence" over forty chunks and
-over four thousand read as the different claims they are.
-
-resolve() ships alongside search(): the ledger stores refs and nothing else, and
-without resolution a proposal accepted eight months ago cites a string.
+150 new tests. 1089 -> 1239 passing.
 ```
-
-## Apply
-
-```bash
-unzip -o p5-5.3-evidence-service.zip -d /path/to/Risk-Platform
-cd /path/to/Risk-Platform/backend
-python -m pytest -q            # expect 1089 passed, 3 skipped
-python -m ruff check app/retrieval app/services/evidence.py app/api/routes/evidence.py \
-                     tests/test_bm25.py tests/test_evidence_service.py
-```
-
-No new dependencies. No `make migrate`.
 
 ## Files
 
-New:
-- `backend/app/retrieval/__init__.py`, `backend/app/retrieval/bm25.py`
-- `backend/app/services/evidence.py`
-- `backend/app/api/routes/evidence.py`
-- `backend/tests/test_bm25.py` (16 tests)
-- `backend/tests/test_evidence_service.py` (25 tests)
-- `claude/plans/evidence-service.md`
+New (22):
+```
+backend/app/llm/{__init__,types,fake,anthropic,registry}.py
+backend/app/agents/{__init__,types,risk_id,dedupe}.py
+backend/app/models/generation.py
+backend/app/services/{risk_generate,generation_dispatch}.py
+backend/app/tasks/generation.py
+backend/app/api/routes/generation.py
+backend/alembic/versions/0023_generation_run.py
+backend/tests/{test_llm_providers,test_risk_id_agent,test_agent_dedupe,
+               test_risk_generate,test_proposal_creation_apply,
+               test_generation_api,test_generation_migration}.py
+claude/plans/risk-identification.md
+```
 
-Modified (each carries 5.1's and 5.2's edits too):
-- `backend/app/core/errors.py` — `EvidenceRefUnresolvable` (append only)
-- `backend/app/api/errors.py` — one handler + registration
-- `backend/app/main.py` — mount the router
+Modified (10):
+```
+backend/app/models/proposal.py        created_target_id, generation_run_id
+backend/app/services/proposal_apply.py  creation registry + risk creator
+backend/app/services/proposal_ledger.py generation_run_id passthrough
+backend/app/core/config.py            llm_* and generation_* settings
+backend/app/core/errors.py            LlmError family, GenerationNotRunnable
+backend/app/api/errors.py             503 / 502 / 422 handlers
+backend/app/db/base.py                registers GenerationRun
+backend/app/main.py                   mounts the generation router
+backend/app/worker.py                 includes app.tasks.generation
+backend/requirements.txt              httpx==0.28.1
+```
 
-No frontend files touched.
+No frontend files change. `tsc --noEmit` and `vite build` were not run for that
+reason; nothing in this delivery can affect them.
 
-## Design decisions — flagged
+## Before you commit — the root `APPLY.md` again
 
-**Revertible.**
+`APPLY.md` is **tracked at the repo root on `main`**: 5.3's copy got committed, the same
+way one did before. This zip's `APPLY.md` overwrites it, so after you unpack, deleting the
+file shows up as `D APPLY.md` rather than as an untracked file disappearing.
 
-1. **History is searched across the whole hierarchy by default.** A reference class limited
-   to the current project is empty exactly when it matters most. Every result carries its
-   scope and is flagged `from_other_scope`, which is what makes the breadth acceptable
-   rather than a leak. `history_across_scopes=false` narrows it per call; flipping the
-   default is one keyword.
+That deletion is the correct cleanup. `git rm APPLY.md` and let it go out with this commit,
+or the same thing happens again next delivery. Nothing in the repo reads it.
 
-2. **A term present in every candidate is worth zero IDF.** Lucene's published form gives
-   it a small positive weight — enough that an all-universal query returns the whole corpus
-   in arbitrary order, which is worse than nothing because it looks like an answer. The
-   rule is exact (`df >= n`), not a majority threshold picked to make an example work.
+Also new in this zip: `claude/plans/risk-identification.md`, per the one-file-per-initiative
+convention. That one *is* meant to be committed.
 
-3. **`MIN_IDF_SHARE = 0.15`.** The abstention threshold. A judgement, not a measurement,
-   and the first number to move if retrieval returns noise or abstains too readily. `K1`
-   and `B` are left at the published defaults deliberately: a hand-picked value with no
-   evaluation behind it is worse than the standard one because it looks deliberate.
+## Verify
 
-4. **Cross-source sorting is by IDF share, then raw score.** Raw score alone ranks a
-   source's population rather than its relevance, because a BM25 score over four hundred
-   activity names and one over four thousand chunks are not on one scale.
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt --break-system-packages
+python -m pytest -q                  # expect 1239 passed, 3 skipped
+python -m ruff check app/ tests/     # expect 3 pre-existing F401s, no new ones
+```
 
-5. **Newest schedule version only.** Older versions describe the same work under names
-   since corrected, and a suggestion citing a superseded activity code is worse than one
-   citing nothing.
+Migration 0023 is verified two ways in `tests/test_generation_migration.py`:
+executed against a hand-built pre-0023 SQLite database, and rendered offline for
+Postgres. `alembic upgrade head` against SQLite still does not work and never
+has (0001's unconditional `CREATE EXTENSION`).
 
-6. **`MAX_CANDIDATES = 20_000` per source, per search.** Declared on the response via
-   `truncated` rather than silently applied. Goes away when retrieval moves to Postgres
-   full-text or pgvector.
+`alembic upgrade head` against the real Postgres before starting the API.
 
-## Verification run
+## Configuration
 
-Fresh `git clone --depth 1` of `main` at `f362022`; 5.1, 5.2, then this zip unpacked over
-it; pinned deps from `requirements.txt` + `requirements-dev.txt`.
+Nothing generates until these are set. Add to `.env`:
 
-- `python -m pytest -q` — **1089 passed, 3 skipped** (1048 after 5.2, + 41 new)
-- `ruff check` — clean on every new and modified file. Tree-wide `ruff check .` still
-  reports the same three pre-existing F401s on `main`, none from this delivery.
-- No migration to render or execute; schema head unchanged at 0022.
+```
+LLM_PROVIDER=anthropic
+LLM_MODEL=<model string>
+ANTHROPIC_API_KEY=<key>
+```
+
+`LLM_PROVIDER=fake` gives a deterministic offline provider for a demo install.
+Both settings default to empty and refuse: a fake reached by accident fills a
+reviewer's inbox with invented proposals that look exactly like real ones, and a
+live provider reached by accident spends money on a misconfiguration.
+
+Optional, with the defaults shown:
+`LLM_TEMPERATURE=0.0`, `LLM_MAX_OUTPUT_TOKENS=4096`, `LLM_TIMEOUT_SECONDS=120`,
+`GENERATION_MAX_WINDOWS=20`, `GENERATION_WINDOW_CHARS=12000`,
+`GENERATION_TRANSCRIPT_CHARS=20000`, `GENERATION_EAGER=false`,
+`GENERATION_REQUIRE_WORKER=true`.
+
+The worker must be running (`docker compose up -d worker`) unless
+`GENERATION_EAGER=true`. Dispatch refuses rather than queueing into an empty
+cluster.
+
+## Decisions made without being asked — all revertible
+
+1. **Identification is a corpus sweep, not a retrieval query.** You cannot BM25
+   for risks nobody has thought of yet, so the corpus is walked window by window
+   and every chunk is read once. `services/evidence.py`'s `search()` is therefore
+   not called by 5.4 — it stays the right interface for the query-shaped
+   generators (a probability suggestion asks about a *named* risk). Evidence refs
+   are built in `Evidence.as_ref()` shape and the `kind` strings are imported
+   from `evidence.py` so a stored ref that stops resolving is a broken import
+   rather than a silent mismatch. **This is the call most likely to draw an
+   objection.** Reverting means routing identification through `search()`, which
+   would need a query-generation step this does not have.
+
+2. **Deduplication lives in the generator, with two thresholds.** ≥0.75 token
+   overlap against the register suppresses and reports; 0.45–0.75 keeps the
+   candidate and attaches the existing risk as a second citation. Asymmetric on
+   purpose: a false suppression is invisible and permanent, a false pass costs a
+   reviewer four seconds. Without this a second pass over the same corpus doubles
+   the inbox — creation proposals are exempt from the one-pending-per-field index,
+   so nothing in 5.1 prevents it. Thresholds are two constants in
+   `agents/dedupe.py`.
+
+3. **`created_target_id` is a new column, not a back-fill of `target_id`.**
+   Back-filling would move accepted creations into the partial unique index's
+   scope and destroy the only signal saying a proposal made a row rather than
+   changed one.
+
+4. **Neither new proposal column takes a foreign key.** SQLite cannot add a
+   constraint to an existing table, so an FK would mean `batch_alter_table`
+   rebuilding `proposal` — dropping and re-declaring the partial unique index and
+   both CHECKs, which are the three things on that table it would be worst to get
+   subtly wrong. Generation runs are never deleted, so the integrity is already a
+   property of the other table.
+
+5. **Raw `httpx`, not the vendor SDK.** One call shape, four wire fields. The
+   deciding argument is the run transcript: a thin client makes it literally the
+   request and the response.
+
+6. **No retries in the provider.** A generation run is already queued,
+   append-only, and carries a status and an error field. A retry over a
+   non-idempotent paid call is an operator decision, not a default.
+
+7. **Creation payloads carry no probability, impact or status.** Identification
+   says what the risk is; the numbers come from an elicitation with the people who
+   own the work. Shipping a probability inside a creation payload would get it
+   accepted as a side effect of accepting the risk statement — one click, two
+   decisions, one of them invisible. Whitelist is `CREATABLE_RISK_FIELDS`.
+
+8. **`generation_run.status` has four values, not five.** `cancelled` belongs to
+   a cancel feature that is not in this delivery; a value nothing can set is dead
+   surface. Same reason `simulation_run` took its cancel status in 0018.
 
 ## Known gaps
 
-- **Retrieval quality is unmeasured.** No labelled query set exists, so `MIN_IDF_SHARE`,
-  `K1`, `B` and 5.2's chunk targets are reasoned defaults rather than tuned values. A small
-  hand-labelled set is the prerequisite for moving any of them, and is worth building
-  before 5.4 rather than after.
-- **IDF is rebuilt in-process on every search.** Correct, and fine at current corpus sizes.
-- **`activity` results report the requested scope rather than a real one.** Activities hang
-  off a schedule version, not a scope; reporting anything else would be a claim the adapter
-  cannot make, so `from_other_scope` stays false for them.
-- **Nothing has run these queries against Postgres.** They are ordinary SQLAlchemy selects
-  with no dialect-specific constructs.
+- **No cancel.** A twenty-window pass is twenty paid calls and there is no way to
+  stop one halfway. Needs a fifth status, a revoke path, and a decision about a
+  worker mid-call. Highest-value follow-up.
+- **No frontend.** 5.1–5.4 are all API-only. The corpus view and proposal inbox
+  ("5.3b") are still unbuilt, and there are now real generated rows to design the
+  inbox against, which was the argument for deferring it.
+- **Runs are auditable, not replayable.** No temperature makes a model
+  deterministic across time and deployments. The run stores prompt version,
+  provider, model, temperature, a `pack_sha256` fingerprint of the extracts sent,
+  and the raw responses — enough to see what was asked and answered, and
+  deliberately not called a seed.
+- **`candidate_count` undercounts an unparseable window.** A response that yielded
+  no JSON contributes zero candidates because there is nothing to count; the drop
+  is recorded with reason `unparseable`.
+- **No cost ceiling in currency**, only `GENERATION_MAX_WINDOWS`. Token counts are
+  recorded per run.
+- **Frontend test runner still absent.** Unchanged standing gap.
+
+## Try it
+
+```bash
+curl -X POST 'localhost:8000/documents/paste?scope_id=1' \
+  -H 'content-type: application/json' \
+  -d '{"filename":"consent.txt","text":"The environmental consent is valid for ninety days from issue. Dewatering may not begin before the consent has been granted."}'
+
+curl -X POST 'localhost:8000/generation/risk-identification?scope_id=1' \
+  -H 'content-type: application/json' -H 'X-Actor: Sam' -d '{}'
+
+curl 'localhost:8000/generation/runs/1'
+curl 'localhost:8000/generation/runs/1/proposals'
+curl -X POST 'localhost:8000/proposals/1/disposition' \
+  -H 'content-type: application/json' -H 'X-Actor: Sam' -d '{"action":"accept"}'
+curl 'localhost:8000/risks?scope_id=1'
+```

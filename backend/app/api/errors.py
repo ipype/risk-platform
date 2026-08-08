@@ -16,6 +16,9 @@ from app.core.errors import (
     DocumentHasNoText,
     DocumentUnreadable,
     EvidenceRefUnresolvable,
+    GenerationNotRunnable,
+    LlmCallFailed,
+    LlmNotConfigured,
     MalformedScheduleFile,
     ParserUnavailable,
     ProjectNotFound,
@@ -264,6 +267,40 @@ async def _evidence_unresolvable(
     )
 
 
+async def _llm_not_configured(request: Request, exc: LlmNotConfigured) -> JSONResponse:
+    # 503 rather than 500: the service is well, this capability is not turned on. The
+    # message names the setting, so the response is the whole fix.
+    return JSONResponse(
+        status_code=503, content=_payload("llm_not_configured", str(exc))
+    )
+
+
+async def _llm_call_failed(request: Request, exc: LlmCallFailed) -> JSONResponse:
+    # 502: we are the gateway and the thing behind us failed. The upstream status travels
+    # in the body rather than being re-used as ours — returning the provider's 429 as our
+    # own would tell a client to back off from *this* API, which is not what happened.
+    return JSONResponse(
+        status_code=502,
+        content=_payload(
+            "llm_call_failed",
+            str(exc),
+            provider=exc.provider,
+            upstream_status=exc.status_code,
+        ),
+    )
+
+
+async def _generation_not_runnable(
+    request: Request, exc: GenerationNotRunnable
+) -> JSONResponse:
+    # 422, like the simulation assembly failure it mirrors: the request is well formed and
+    # what it asks for cannot be built from the material available. The reason names it.
+    return JSONResponse(
+        status_code=422,
+        content=_payload("generation_not_runnable", str(exc), reason=exc.reason),
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -290,4 +327,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DocumentUnreadable, _document_unreadable)  # type: ignore[arg-type]
     app.add_exception_handler(DocumentHasNoText, _document_has_no_text)  # type: ignore[arg-type]
     app.add_exception_handler(EvidenceRefUnresolvable, _evidence_unresolvable)  # type: ignore[arg-type]
+    app.add_exception_handler(LlmNotConfigured, _llm_not_configured)  # type: ignore[arg-type]
+    app.add_exception_handler(LlmCallFailed, _llm_call_failed)  # type: ignore[arg-type]
+    app.add_exception_handler(GenerationNotRunnable, _generation_not_runnable)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

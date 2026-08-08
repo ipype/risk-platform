@@ -12,6 +12,7 @@ from app.api.routes import (
     documents,
     evidence,
     export,
+    generation,
     health,
     history,
     mappings,
@@ -73,6 +74,7 @@ app.include_router(reports.router)
 app.include_router(proposals.router)
 app.include_router(documents.router)
 app.include_router(evidence.router)
+app.include_router(generation.router)
 
 
 @app.get("/", tags=["root"])
