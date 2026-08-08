@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     custom_fields,
+    documents,
+    evidence,
     export,
     health,
     history,
@@ -69,6 +71,8 @@ app.include_router(simulations.router)
 app.include_router(roi.router)
 app.include_router(reports.router)
 app.include_router(proposals.router)
+app.include_router(documents.router)
+app.include_router(evidence.router)
 
 
 @app.get("/", tags=["root"])

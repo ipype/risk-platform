@@ -13,6 +13,9 @@ from fastapi.responses import JSONResponse
 
 from app.core.errors import (
     AmbiguousProjectError,
+    DocumentHasNoText,
+    DocumentUnreadable,
+    EvidenceRefUnresolvable,
     MalformedScheduleFile,
     ParserUnavailable,
     ProjectNotFound,
@@ -29,6 +32,7 @@ from app.core.errors import (
     ScopeNotFound,
     SimulationNotAssemblable,
     SimulationRunNotCancellable,
+    UnsupportedDocumentFormat,
     UnsupportedScheduleFormat,
 )
 
@@ -225,6 +229,41 @@ async def _proposal_target_invalid(
     )
 
 
+async def _unsupported_document(
+    request: Request, exc: UnsupportedDocumentFormat
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=415,
+        content=_payload("unsupported_document_format", str(exc), supported=exc.supported),
+    )
+
+
+async def _document_unreadable(
+    request: Request, exc: DocumentUnreadable
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content=_payload("document_unreadable", str(exc)))
+
+
+async def _document_has_no_text(
+    request: Request, exc: DocumentHasNoText
+) -> JSONResponse:
+    # 422 rather than 415: the format is supported and was read successfully. What came
+    # back was nothing, which is a fact about this file rather than about the deployment.
+    return JSONResponse(
+        status_code=422,
+        content=_payload("document_has_no_text", str(exc), reason=exc.reason),
+    )
+
+
+async def _evidence_unresolvable(
+    request: Request, exc: EvidenceRefUnresolvable
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content=_payload("evidence_ref_unresolvable", str(exc), ref=exc.ref),
+    )
+
+
 async def _domain_error(request: Request, exc: RiskPlatformError) -> JSONResponse:
     return JSONResponse(status_code=400, content=_payload("domain_error", str(exc)))
 
@@ -247,4 +286,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ProposalNotDisposable, _proposal_not_disposable)  # type: ignore[arg-type]
     app.add_exception_handler(ProposalStale, _proposal_stale)  # type: ignore[arg-type]
     app.add_exception_handler(ProposalTargetInvalid, _proposal_target_invalid)  # type: ignore[arg-type]
+    app.add_exception_handler(UnsupportedDocumentFormat, _unsupported_document)  # type: ignore[arg-type]
+    app.add_exception_handler(DocumentUnreadable, _document_unreadable)  # type: ignore[arg-type]
+    app.add_exception_handler(DocumentHasNoText, _document_has_no_text)  # type: ignore[arg-type]
+    app.add_exception_handler(EvidenceRefUnresolvable, _evidence_unresolvable)  # type: ignore[arg-type]
     app.add_exception_handler(RiskPlatformError, _domain_error)  # type: ignore[arg-type]

@@ -253,3 +253,61 @@ class ProposalTargetInvalid(ProposalError):
     a rejection with no reason. Every one of these leaves the proposal pending, because a
     proposal marked accepted whose value never landed is worse than no ledger at all.
     """
+
+
+class DocumentError(RiskPlatformError):
+    """Base class for document ingestion failures."""
+
+
+class UnsupportedDocumentFormat(DocumentError):
+    """No extractor is registered for this suffix.
+
+    Distinct from :class:`DocumentUnreadable`: nothing was attempted. The message lists
+    what is supported, because the next action is always to convert or to paste.
+    """
+
+    def __init__(self, suffix: str, supported: list[str]) -> None:
+        self.suffix = suffix
+        self.supported = supported
+        super().__init__(
+            f"No extractor is registered for '{suffix}'. Supported: "
+            f"{', '.join(supported)}. Anything else can be pasted as text."
+        )
+
+
+class DocumentUnreadable(DocumentError):
+    """The extractor recognised the format and could not read the bytes."""
+
+    def __init__(self, filename: str, reason: str) -> None:
+        self.filename = filename
+        self.reason = reason
+        super().__init__(f"{filename} could not be read: {reason}")
+
+
+class DocumentHasNoText(DocumentError):
+    """The file opened cleanly and yielded nothing.
+
+    Refused rather than stored. A document with zero chunks looks successful in the list,
+    retrieves nothing forever, and gives nobody a reason to suspect the file — which makes
+    it strictly worse than an upload that failed and said why.
+    """
+
+    def __init__(self, filename: str, reason: str) -> None:
+        self.filename = filename
+        self.reason = reason
+        super().__init__(f"{filename} yielded no text. {reason}")
+
+
+class EvidenceRefUnresolvable(RiskPlatformError):
+    """A stored evidence reference does not point at anything readable.
+
+    Should be rare by construction — documents are withdrawn rather than deleted precisely
+    so a citation keeps resolving — and is therefore worth an error rather than an empty
+    result. A proposal whose evidence silently resolves to nothing is a proposal whose
+    reviewer has no way to tell.
+    """
+
+    def __init__(self, ref: str, reason: str) -> None:
+        self.ref = ref
+        self.reason = reason
+        super().__init__(f"Evidence reference {ref!r} cannot be resolved. {reason}")
